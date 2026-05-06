@@ -1,0 +1,114 @@
+# ─────────────────────────────────────────────
+# Secrets — NEVER commit
+# ─────────────────────────────────────────────
+.env
+.env.*
+!env.example
+
+# API key dumps, credential files
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# ─────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# Type checkers / linters / test caches
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+.pytest_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ─────────────────────────────────────────────
+# Generated viz projects (created by fixed_main_v6.py at runtime)
+# These contain node_modules, build artifacts, and per-run logs.
+# Regenerate them from the orchestrator instead of committing.
+# ─────────────────────────────────────────────
+viz_outputs/
+
+# ─────────────────────────────────────────────
+# Node / Vite (in case any Node project ends up at the root)
+# ─────────────────────────────────────────────
+node_modules/
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite / bundler output
+dist/
+.vite/
+*.tsbuildinfo
+
+# ─────────────────────────────────────────────
+# Runtime logs and dev-server artifacts
+# ─────────────────────────────────────────────
+*.log
+.dev-server.log
+
+# ─────────────────────────────────────────────
+# Job state / cache (if persisted to disk later)
+# ─────────────────────────────────────────────
+.job_cache/
+*.sqlite
+*.sqlite3
+*.db
+
+# ─────────────────────────────────────────────
+# IDE / editor
+# ─────────────────────────────────────────────
+.vscode/
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+*~
+
+# ─────────────────────────────────────────────
+# OS junk
+# ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────────────────────
+# Playwright (used by fixed_main_v6.py for screenshots)
+# ─────────────────────────────────────────────
+playwright-report/
+test-results/
+.playwright/
+
+# ─────────────────────────────────────────────
+# LangSmith / telemetry caches
+# ─────────────────────────────────────────────
+.langsmith/

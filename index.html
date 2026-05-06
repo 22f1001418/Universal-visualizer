@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HackMD · Visualization Orchestrator</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..900&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+:root {
+  --bg-0: #0e0d0b;
+  --bg-1: #16140f;
+  --bg-2: #1d1a14;
+  --line: #2c281f;
+  --ink-0: #f3eedf;
+  --ink-1: #c9c2ad;
+  --ink-2: #8d8775;
+  --ink-3: #5e5949;
+  --accent: #e7733e;        /* burnt amber */
+  --accent-soft: #f3a472;
+  --good: #7fc28b;
+  --warn: #e5c07b;
+  --bad:  #d97062;
+  --grain-opacity: 0.02;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--bg-0);
+  color: var(--ink-1);
+  font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  min-height: 100vh;
+}
+
+/* Subtle grain texture for atmosphere */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(231,115,62,0.04), transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(231,115,62,0.03), transparent 50%);
+  z-index: 0;
+}
+
+#root { position: relative; z-index: 1; }
+
+h1, h2, h3, h4 {
+  font-family: 'Fraunces', Georgia, serif;
+  color: var(--ink-0);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 144;
+}
+h1 { font-size: 2.4rem; line-height: 1.05; font-weight: 300; }
+h2 { font-size: 1.5rem; line-height: 1.15; font-weight: 400; }
+h3 { font-size: 1.1rem; line-height: 1.2;  font-weight: 500; font-variation-settings: "opsz" 36; }
+
+code, .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.88em; }
+
+button, input, textarea, select { font-family: inherit; font-size: inherit; color: inherit; }
+
+button {
+  cursor: pointer;
+  background: var(--bg-2);
+  color: var(--ink-0);
+  border: 1px solid var(--line);
+  padding: 10px 18px;
+  border-radius: 2px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  transition: all 160ms cubic-bezier(.2,.7,.2,1);
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button.primary {
+  background: var(--accent);
+  color: var(--bg-0);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+  color: var(--bg-0);
+}
+button.ghost { background: transparent; }
+
+input, textarea, select {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  padding: 10px 14px;
+  border-radius: 2px;
+  width: 100%;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+textarea { resize: vertical; min-height: 90px; }
+label { display: block; color: var(--ink-2); font-size: 0.85rem; margin-bottom: 6px;
+  letter-spacing: 0.04em; text-transform: uppercase; font-weight: 500; }
+
+.shell { max-width: 1140px; margin: 0 auto; padding: 56px 48px 80px; }
+
+.brand {
+  display: flex; align-items: baseline; justify-content: space-between;
+  border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 56px;
+}
+.brand .name {
+  font-family: 'Fraunces', serif; font-size: 1.4rem; font-weight: 400;
+  font-variation-settings: "opsz" 96;
+  color: var(--ink-0); letter-spacing: -0.01em;
+}
+.brand .name em { color: var(--accent); font-style: italic; font-weight: 300; }
+.brand .meta { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+  color: var(--ink-3); letter-spacing: 0.06em; text-transform: uppercase; }
+
+.crumbs {
+  display: flex; gap: 4px; margin-bottom: 32px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+  color: var(--ink-3); letter-spacing: 0.05em; text-transform: uppercase;
+}
+.crumbs span.now { color: var(--accent); }
+.crumbs span:not(:last-child)::after { content: " /"; margin-left: 4px; color: var(--ink-3); }
+
+.panel {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  padding: 36px;
+  margin-bottom: 24px;
+  border-radius: 2px;
+  position: relative;
+}
+.panel.accent { border-left: 2px solid var(--accent); }
+
+.kicker {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 8px;
+}
+
+.lead { color: var(--ink-1); font-size: 1.05rem; line-height: 1.65;
+  max-width: 620px; margin-top: 14px; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+@media (max-width: 760px) {
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .shell { padding: 32px 22px; }
+  h1 { font-size: 1.9rem; }
+}
+
+.topic-card, .sug-card {
+  background: var(--bg-1); border: 1px solid var(--line);
+  padding: 22px 24px; border-radius: 2px;
+  cursor: pointer; transition: all 160ms;
+  position: relative;
+}
+.topic-card:hover, .sug-card:hover { border-color: var(--accent); }
+.topic-card.selected, .sug-card.selected {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(231,115,62,0.05), transparent);
+}
+.topic-card .num, .sug-card .num {
+  position: absolute; top: 16px; right: 18px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
+  color: var(--ink-3); letter-spacing: 0.1em;
+}
+.topic-card h3 { margin-bottom: 6px; }
+.topic-card .section-tag {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.74rem;
+  color: var(--accent); letter-spacing: 0.04em;
+  margin-bottom: 14px; text-transform: uppercase;
+}
+.topic-card .quote {
+  border-left: 2px solid var(--line); padding-left: 14px;
+  font-style: italic; color: var(--ink-2);
+  font-family: 'Fraunces', serif; font-weight: 300;
+  margin: 14px 0;
+}
+.topic-card .why { color: var(--ink-2); font-size: 0.92rem; }
+
+.diff-pill {
+  display: inline-block; padding: 2px 10px; border-radius: 2px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-top: 10px; border: 1px solid var(--line);
+}
+.diff-pill.beginner       { color: var(--good);  border-color: rgba(127,194,139,0.3); }
+.diff-pill.intermediate   { color: var(--warn);  border-color: rgba(229,192,123,0.3); }
+.diff-pill.advanced       { color: var(--bad);   border-color: rgba(217,112,98,0.3); }
+
+.complexity-badge {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-3); margin-left: 12px;
+}
+
+.benefit-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
+}
+.benefit-row > div { display: flex; flex-direction: column; gap: 4px; }
+.benefit-row .who {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3);
+}
+.benefit-row .what { color: var(--ink-1); font-size: 0.9rem; line-height: 1.55; }
+
+.error {
+  border: 1px solid var(--bad);
+  background: rgba(217,112,98,0.05);
+  color: var(--bad);
+  padding: 14px 18px; border-radius: 2px; margin-bottom: 18px;
+  font-size: 0.9rem;
+}
+
+.spinner {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid var(--line); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  vertical-align: middle; margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.progress-track {
+  display: flex; gap: 4px; margin: 24px 0;
+}
+.progress-track .seg {
+  flex: 1; height: 3px; background: var(--bg-2); border-radius: 1px;
+  position: relative; overflow: hidden;
+}
+.progress-track .seg.active::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: sweep 1.6s ease-in-out infinite;
+}
+.progress-track .seg.done { background: var(--accent); }
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+.log-tail {
+  background: var(--bg-0); border: 1px solid var(--line); padding: 14px 18px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+  color: var(--ink-2); max-height: 240px; overflow-y: auto;
+  line-height: 1.65; border-radius: 2px;
+}
+.log-tail .line { white-space: pre; }
+
+.manifest-block {
+  background: var(--bg-0); border: 1px solid var(--line); padding: 24px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;
+  color: var(--ink-1); white-space: pre-wrap; word-break: break-word;
+  line-height: 1.7; border-radius: 2px;
+}
+
+.row-actions { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+
+.tiny { font-size: 0.78rem; color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em; }
+
+.divider { border: none; border-top: 1px solid var(--line); margin: 36px 0; }
+
+.shot-thumb {
+  width: 100%; max-width: 480px; aspect-ratio: 1/1;
+  background: var(--bg-2); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 12px; border-radius: 2px; overflow: hidden;
+}
+.shot-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.shot-thumb .placeholder { color: var(--ink-3); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useCallback, useRef } = React;
+
+// ───────────────────────────────────
+// Constants
+// ───────────────────────────────────
+const TRACKS = [
+  "Academy DSA", "Academy Fullstack", "Academy Backend",
+  "DSML DA", "DSML DS", "AIML", "DevOps",
+];
+
+const PHASE_LABELS = {
+  queued:          "Queued",
+  step1_generate:  "Generating draft code",
+  step2_build:     "Build error loop",
+  step3_runtime:   "Runtime validation",
+  step4_polish:    "Design polish",
+  completed:       "Completed",
+  failed:          "Failed",
+};
+const PHASE_ORDER = ["queued", "step1_generate", "step2_build", "step3_runtime", "step4_polish", "completed"];
+
+// ───────────────────────────────────
+// API helpers
+// ───────────────────────────────────
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { "Accept": "application/json", ...(opts.headers || {}) } });
+  if (!r.ok) {
+    let body = "";
+    try { body = await r.text(); } catch {}
+    throw new Error(`${r.status} ${r.statusText}${body ? "  —  " + body.slice(0, 200) : ""}`);
+  }
+  return r.json();
+}
+
+// ───────────────────────────────────
+// Top-level App: routes between screens via local state
+// ───────────────────────────────────
+function App() {
+  const [screen, setScreen] = useState("upload"); // upload | topics | suggestions | building | done
+  const [job, setJob] = useState(null);
+  const [activeTopic, setActiveTopic] = useState(null);
+  const [error, setError] = useState("");
+
+  const showError = (e) => setError(typeof e === "string" ? e : (e?.message || "Unknown error"));
+
+  return (
+    <div className="shell">
+      <div className="brand">
+        <div className="name">HackMD <em>·</em> Visualization Orchestrator</div>
+        <div className="meta">v1 · multi-agent</div>
+      </div>
+
+      <Crumbs screen={screen} />
+
+      {error && <div className="error">{error} <button className="ghost" style={{marginLeft:12,padding:'4px 10px'}} onClick={() => setError("")}>dismiss</button></div>}
+
+      {screen === "upload" && (
+        <Upload
+          onJobReady={(j) => { setJob(j); setScreen("topics"); }}
+          onError={showError}
+        />
+      )}
+      {screen === "topics" && job && (
+        <Topics
+          job={job}
+          onPickTopic={(t) => { setActiveTopic(t); setScreen("suggestions"); }}
+          onError={showError}
+        />
+      )}
+      {screen === "suggestions" && job && activeTopic && (
+        <Suggestions
+          job={job}
+          topic={activeTopic}
+          onBuildQueued={() => setScreen("building")}
+          onBack={() => setScreen("topics")}
+          onError={showError}
+        />
+      )}
+      {screen === "building" && job && (
+        <Building
+          jobId={job.job_id}
+          onAllDone={() => setScreen("done")}
+          onBackToTopics={() => setScreen("topics")}
+        />
+      )}
+      {screen === "done" && job && (
+        <Done jobId={job.job_id} onError={showError} onRestart={() => { setJob(null); setScreen("upload"); }} />
+      )}
+    </div>
+  );
+}
+
+function Crumbs({ screen }) {
+  const order = ["upload", "topics", "suggestions", "building", "done"];
+  const labels = { upload: "01 · UPLOAD", topics: "02 · TOPICS", suggestions: "03 · APPROACH", building: "04 · BUILDING", done: "05 · MANIFEST" };
+  const idx = order.indexOf(screen);
+  return (
+    <div className="crumbs">
+      {order.map((s, i) => (
+        <span key={s} className={i === idx ? "now" : ""}>{labels[s]}</span>
+      ))}
+    </div>
+  );
+}
+
+// ───────────────────────────────────
+// 1. UPLOAD
+// ───────────────────────────────────
+function Upload({ onJobReady, onError }) {
+  const [file, setFile] = useState(null);
+  const [track, setTrack] = useState("AIML");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!file) { onError("Pick a HackMD .md file first."); return; }
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("track", track);
+      fd.append("file", file);
+      const res = await fetch("/upload", { method: "POST", body: fd });
+      if (!res.ok) throw new Error(await res.text());
+      const upload = await res.json();
+      // Pull the full job state immediately so the next screen has topics
+      const job = await api(`/jobs/${upload.job_id}`);
+      onJobReady(job);
+    } catch (e) { onError(e); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div>
+      <div className="kicker">Step 01 — input</div>
+      <h1>Find the visual moments<br/>in a lecture script.</h1>
+      <p className="lead">
+        Upload a HackMD markdown file. A topic-extraction agent reads it and surfaces
+        the 3-7 sections where an interactive visualization would actually help a
+        beginner learner — anchored to the exact sentence after which the viz should
+        embed.
+      </p>
+
+      <div className="panel accent" style={{marginTop:36}}>
+        <div className="grid-2">
+          <div>
+            <label>Track</label>
+            <select value={track} onChange={(e) => setTrack(e.target.value)}>
+              {TRACKS.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>HackMD file</label>
+            <input
+              type="file"
+              accept=".md,.markdown,.txt"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+            />
+            {file && <div className="tiny" style={{marginTop:6}}>{file.name} · {Math.round(file.size/1024)} KB</div>}
+          </div>
+        </div>
+        <div className="row-actions">
+          <button className="primary" onClick={submit} disabled={busy || !file}>
+            {busy ? <><span className="spinner"/> Extracting topics…</> : "Analyze script"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────
+// 2. TOPICS LIST
+// ───────────────────────────────────
+function Topics({ job, onPickTopic, onError }) {
+  return (
+    <div>
+      <div className="kicker">Step 02 — topics</div>
+      <h1>Extracted{" "}
+        <span style={{color:'var(--accent)'}}>{job.topics.length}</span>{" "}
+        viz opportunities.
+      </h1>
+      <p className="lead">
+        Pick one to see five distinct approaches a viz agent could build for it.
+        Each topic shows the section it lives under and the exact sentence the viz
+        will be embedded after.
+      </p>
+
+      <div className="grid-2" style={{marginTop:36}}>
+        {job.topics.map((t, i) => (
+          <div key={t.id} className="topic-card" onClick={() => onPickTopic(t)}>
+            <span className="num">{String(i + 1).padStart(2, "0")}</span>
+            <div className="section-tag">{t.section}</div>
+            <h3>{t.topic}</h3>
+            <div className="quote">{t.embed_after_sentence || "(no anchor sentence)"}</div>
+            <p className="why">{t.why_visual_helps}</p>
+            <div className={"diff-pill " + t.audience_difficulty}>{t.audience_difficulty}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────
+// 3. SUGGESTIONS for one topic
+// ───────────────────────────────────
+function Suggestions({ job, topic, onBuildQueued, onBack, onError }) {
+  const [suggestions, setSuggestions] = useState(null);
+  const [picked, setPicked] = useState(null);
+  const [notes, setNotes] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const r = await api(`/jobs/${job.job_id}/topics/${topic.id}/suggestions`, { method: "POST" });
+        if (!cancelled) setSuggestions(r.suggestions);
+      } catch (e) { onError(e); }
+      finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [job.job_id, topic.id]);
+
+  async function build() {
+    if (!picked && !notes.trim()) { onError("Pick a suggestion or write custom notes."); return; }
+    setBusy(true);
+    try {
+      await api(`/jobs/${job.job_id}/topics/${topic.id}/build`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          suggestion_id: picked || null,
+          custom_notes: notes,
+        }),
+      });
+      onBuildQueued();
+    } catch (e) { onError(e); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div>
+      <div className="kicker">Step 03 — pick an approach</div>
+      <h1 style={{marginBottom:8}}>{topic.topic}</h1>
+      <div className="tiny" style={{marginBottom:18}}>
+        {topic.section} · embed after “{(topic.embed_after_sentence || "").slice(0, 80)}…”
+      </div>
+
+      {loading && <div className="panel"><span className="spinner"/> Generating five distinct viz approaches…</div>}
+
+      {!loading && suggestions && (
+        <div>
+          <div style={{display:'flex', flexDirection:'column', gap:14, marginBottom:24}}>
+            {suggestions.map((s, i) => (
+              <div
+                key={s.id}
+                className={"sug-card " + (picked === s.id ? "selected" : "")}
+                onClick={() => setPicked(s.id)}
+              >
+                <span className="num">0{i + 1}</span>
+                <h3>{s.title}<span className="complexity-badge">complexity · {s.complexity}</span></h3>
+                <p style={{marginTop:6, color:'var(--ink-1)'}}>{s.approach}</p>
+                <div className="benefit-row">
+                  <div>
+                    <span className="who">For beginners</span>
+                    <span className="what">{s.beginner_benefit}</span>
+                  </div>
+                  <div>
+                    <span className="who">For intermediate</span>
+                    <span className="what">{s.intermediate_benefit}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="panel">
+            <label>Custom notes (optional)</label>
+            <textarea
+              placeholder="e.g. Use a 5x5 input matrix with a 3x3 kernel — match the example from chapter 9 of Goodfellow's book."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              maxLength={2000}
+            />
+            <div className="row-actions">
+              <button className="ghost" onClick={onBack}>← Back to topics</button>
+              <button className="primary" onClick={build} disabled={busy || (!picked && !notes.trim())}>
+                {busy ? <><span className="spinner"/> Queuing build…</> : "Build this viz →"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────────────
+// 4. BUILDING — poll job state, show phase + tail
+// ───────────────────────────────────
+function Building({ jobId, onAllDone, onBackToTopics }) {
+  const [job, setJob] = useState(null);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    async function poll() {
+      try {
+        const j = await api(`/jobs/${jobId}`);
+        setJob(j);
+        const builds = Object.values(j.builds || {});
+        const allDone = builds.length > 0 && builds.every(b => b.phase === "completed" || b.phase === "failed");
+        if (allDone) {
+          onAllDone();
+          return;
+        }
+      } catch (e) {
+        // swallow — keep polling
+      }
+      timerRef.current = setTimeout(poll, 2000);
+    }
+    poll();
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [jobId]);
+
+  if (!job) return <div className="panel"><span className="spinner"/> Loading job state…</div>;
+
+  const builds = Object.values(job.builds || {});
+  return (
+    <div>
+      <div className="kicker">Step 04 — building</div>
+      <h1>Generating <span style={{color:'var(--accent)'}}>{builds.length}</span> visualization{builds.length===1?"":"s"}.</h1>
+      <p className="lead">
+        Each viz spawns a <code>fixed_main_v6.py</code> subprocess that drafts the React app,
+        runs the npm build loop, validates runtime behavior, and screenshots the result.
+      </p>
+
+      <div style={{marginTop:36, display:'flex', flexDirection:'column', gap:18}}>
+        {builds.map(b => {
+          const topic = job.topics.find(t => t.id === b.topic_id);
+          return <BuildCard key={b.topic_id} build={b} topic={topic} />;
+        })}
+      </div>
+
+      {builds.length === 0 && <div className="panel">No builds yet. <button className="ghost" onClick={onBackToTopics}>back</button></div>}
+    </div>
+  );
+}
+
+function BuildCard({ build, topic }) {
+  const phaseIdx = PHASE_ORDER.indexOf(build.phase);
+  const tail = (build.progress_log || []).slice(-12);
+
+  return (
+    <div className={"panel " + (build.phase === "failed" ? "" : "accent")}>
+      <div className="kicker">{topic ? topic.section : ""}</div>
+      <h2>{topic ? topic.topic : build.topic_id}</h2>
+      <div className="tiny" style={{marginTop:6}}>
+        {build.id} · {PHASE_LABELS[build.phase] || build.phase}
+      </div>
+
+      <div className="progress-track">
+        {PHASE_ORDER.slice(1).map((p, i) => {
+          const here = PHASE_ORDER.indexOf(p);
+          let cls = "seg";
+          if (build.phase === "failed") cls = "seg" + (i < phaseIdx ? " done" : "");
+          else if (here < phaseIdx) cls = "seg done";
+          else if (here === phaseIdx) cls = "seg active";
+          return <div key={p} className={cls} title={PHASE_LABELS[p]}/>;
+        })}
+      </div>
+
+      {build.error && <div className="error">{build.error}</div>}
+
+      {tail.length > 0 && (
+        <div className="log-tail">
+          {tail.map((l, i) => <div key={i} className="line">{l}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────────────
+// 5. DONE — show manifest + download
+// ───────────────────────────────────
+function Done({ jobId, onError, onRestart }) {
+  const [data, setData] = useState(null);
+  const [job, setJob] = useState(null);
+  const [busyTid, setBusyTid] = useState("");
+  const timerRef = useRef(null);
+
+  async function refresh() {
+    try {
+      const [m, j] = await Promise.all([
+        api(`/jobs/${jobId}/manifest`),
+        api(`/jobs/${jobId}`),
+      ]);
+      setData(m); setJob(j);
+      return j;
+    } catch (e) { onError(e); }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    async function tick() {
+      const j = await refresh();
+      if (cancelled || !j) return;
+      const builds = Object.values(j.builds || {});
+      const anyStarting = builds.some(b => b.dev_server_status === "starting");
+      if (anyStarting) {
+        timerRef.current = setTimeout(tick, 2000);
+      }
+    }
+    tick();
+    return () => {
+      cancelled = true;
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [jobId]);
+
+  if (!data || !job) return <div className="panel"><span className="spinner"/> Loading manifest…</div>;
+
+  const json = JSON.stringify(data, null, 2);
+  function download() {
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `manifest_${jobId}.json`;
+    a.click(); URL.revokeObjectURL(url);
+  }
+  function copy() { navigator.clipboard?.writeText(json); }
+
+  async function startServer(tid) {
+    setBusyTid(tid);
+    try {
+      await api(`/jobs/${jobId}/topics/${tid}/dev-server/start`, { method: "POST" });
+      await refresh();
+    } catch (e) { onError(e); }
+    finally { setBusyTid(""); }
+  }
+  async function stopServer(tid) {
+    setBusyTid(tid);
+    try {
+      await api(`/jobs/${jobId}/topics/${tid}/dev-server/stop`, { method: "POST" });
+      await refresh();
+    } catch (e) { onError(e); }
+    finally { setBusyTid(""); }
+  }
+
+  return (
+    <div>
+      <div className="kicker">Step 05 — manifest</div>
+      <h1>Done. <span style={{color:'var(--accent)'}}>{data.manifest.length}</span> viz{data.manifest.length===1?"":"s"} ready to embed.</h1>
+      <p className="lead" style={{marginTop:8}}>
+        Each viz also has a live dev server running locally. Click <strong>Open Live Preview</strong>{" "}
+        to view the actual animation in a new tab.
+      </p>
+
+      <div style={{marginTop:36, display:'flex', flexDirection:'column', gap:18}}>
+        {data.manifest.map((m, i) => {
+          // Find the matching build to get dev server status
+          const build = Object.values(job.builds).find(b =>
+            b.project_dir === m.project_dir
+          );
+          const tid = build ? build.topic_id : null;
+          const dsStatus = build ? build.dev_server_status : "not_started";
+          const dsUrl    = build ? build.dev_server_url : "";
+          const dsErr    = build ? build.dev_server_error : "";
+          const isBusy   = busyTid === tid;
+
+          return (
+            <div key={i} className={"panel " + (m.status === "ok" ? "accent" : "")}>
+              <div className="kicker">{m.section}</div>
+              <h2>{m.topic}</h2>
+              <p style={{marginTop:8, color:'var(--ink-2)'}}>{m.why_visual_helps}</p>
+
+              {m.screenshot_path && (
+                <div className="shot-thumb" style={{marginTop:18}}>
+                  <img src={`/preview?path=${encodeURIComponent(m.screenshot_path)}`} alt={m.topic}/>
+                </div>
+              )}
+              {!m.screenshot_path && (
+                <div className="shot-thumb" style={{marginTop:18}}>
+                  <div className="placeholder">no screenshot captured</div>
+                </div>
+              )}
+
+              {/* ── Live dev server status + controls ── */}
+              <div style={{marginTop:18}}>
+                <div className="kicker">Live preview</div>
+                <DevServerControls
+                  status={dsStatus}
+                  url={dsUrl}
+                  error={dsErr}
+                  busy={isBusy}
+                  onStart={() => tid && startServer(tid)}
+                  onStop={() => tid && stopServer(tid)}
+                />
+              </div>
+
+              <div style={{marginTop:18}}>
+                <div className="kicker">Embed after sentence</div>
+                <div className="quote" style={{borderLeft:'2px solid var(--accent)', paddingLeft:14, fontFamily:'Fraunces, serif', fontStyle:'italic', color:'var(--ink-1)', marginTop:6}}>
+                  {m.embed_after_sentence}
+                </div>
+              </div>
+
+              <div style={{marginTop:18}}>
+                <div className="kicker">Project directory</div>
+                <code style={{display:'block', marginTop:6, padding:'10px 14px', background:'var(--bg-0)', border:'1px solid var(--line)', wordBreak:'break-all'}}>
+                  {m.project_dir}
+                </code>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <hr className="divider"/>
+
+      <div className="panel">
+        <h3>Full manifest JSON</h3>
+        <p className="tiny" style={{marginTop:6}}>
+          Token usage: {data.token_usage.total_tokens.toLocaleString()} tokens · ${data.token_usage.estimated_cost_usd}
+        </p>
+        <div className="row-actions" style={{marginTop:14, marginBottom:18}}>
+          <button onClick={copy}>Copy JSON</button>
+          <button onClick={download}>Download manifest.json</button>
+          <button className="ghost" onClick={onRestart}>↻ Start a new job</button>
+        </div>
+        <pre className="manifest-block">{json}</pre>
+      </div>
+    </div>
+  );
+}
+
+function DevServerControls({ status, url, error, busy, onStart, onStop }) {
+  if (status === "running" && url) {
+    return (
+      <div style={{display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginTop:8}}>
+        <a href={url} target="_blank" rel="noopener noreferrer" style={{textDecoration:'none'}}>
+          <button className="primary">Open Live Preview ↗</button>
+        </a>
+        <code style={{padding:'4px 10px', background:'var(--bg-0)', border:'1px solid var(--line)', fontSize:'0.8rem'}}>{url}</code>
+        <button className="ghost" onClick={onStop} disabled={busy}>
+          {busy ? <><span className="spinner"/>…</> : "Stop server"}
+        </button>
+      </div>
+    );
+  }
+  if (status === "starting") {
+    return <div className="tiny" style={{marginTop:8}}><span className="spinner"/> Booting dev server (npm install + vite)…</div>;
+  }
+  if (status === "failed") {
+    return (
+      <div style={{marginTop:8}}>
+        <div className="error" style={{margin:0}}>Dev server failed{error ? `: ${error.slice(0,200)}` : ""}</div>
+        <button className="ghost" onClick={onStart} disabled={busy} style={{marginTop:8}}>
+          {busy ? <><span className="spinner"/>retrying…</> : "↻ Retry"}
+        </button>
+      </div>
+    );
+  }
+  // not_started or stopped
+  return (
+    <button className="primary" onClick={onStart} disabled={busy} style={{marginTop:8}}>
+      {busy ? <><span className="spinner"/> starting…</> : "▶ Start dev server"}
+    </button>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
