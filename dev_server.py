@@ -39,19 +39,22 @@ class StaticBuildInfo:
 
 
 def _patch_vite_base(project_dir: Path) -> None:
-    """Insert base: "./" into vite.config so the static build works from any URL path."""
+    """Insert base: "./" into both vite.config.ts and vite.config.js.
+
+    Both files must be patched because Vite may load either one depending on
+    version — vite.config.js takes precedence in some Vite versions.
+    """
     for fname in ("vite.config.ts", "vite.config.js"):
         cfg = project_dir / fname
         if not cfg.exists():
             continue
         text = cfg.read_text(encoding="utf-8")
         if "base:" in text:
-            return
+            continue  # already has a base setting, skip this file
         patched = re.sub(r'(defineConfig\s*\(\s*\{)', r'\1' + '\n  base: "./",' , text, count=1)
         if patched != text:
             cfg.write_text(patched, encoding="utf-8")
             logger.info("[StaticBuild] patched %s with base: \"./\"", fname)
-        return
 
 
 def build_static_viz(project_dir: str) -> StaticBuildInfo:
@@ -70,9 +73,24 @@ def build_static_viz(project_dir: str) -> StaticBuildInfo:
             error=f"Not a valid Vite project: {pdir}",
         )
 
-    if dist.exists() and (dist / "index.html").exists():
+    # Only skip if dist/ exists AND both vite configs already have base: "./"
+    # (avoids re-running a correct build, but forces rebuild if base was missing)
+    def _configs_have_base() -> bool:
+        for fname in ("vite.config.ts", "vite.config.js"):
+            cfg = pdir / fname
+            if cfg.exists() and "base:" not in cfg.read_text(encoding="utf-8"):
+                return False
+        return True
+
+    if dist.exists() and (dist / "index.html").exists() and _configs_have_base():
         logger.info("[StaticBuild] dist/ already present for %s — skipping", pdir.name)
         return StaticBuildInfo(project_dir=str(pdir), dist_dir=str(dist), status="ok")
+
+    # Remove stale dist/ so the build starts clean
+    if dist.exists():
+        import shutil as _shutil
+        _shutil.rmtree(dist)
+        logger.info("[StaticBuild] removed stale dist/ for %s (will rebuild with base: './')", pdir.name)
 
     if not (pdir / "node_modules").exists():
         ok, tail = _npm_install(pdir)
