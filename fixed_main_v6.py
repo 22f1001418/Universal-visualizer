@@ -115,7 +115,7 @@ LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai").lower()
 
 # Model name picked per provider
 DEFAULT_MODELS: dict[str, str] = {
-    "openai": "gpt-4o",       # cheap + fast for paid use; switch to gpt-4o for quality
+    "openai": "gpt-5",       # cheap + fast for paid use; switch to gpt-4o for quality
     "gemini": "gemini-2.5-flash",
 }
 MODEL_NAME: str = os.getenv("MODEL_NAME") or DEFAULT_MODELS.get(LLM_PROVIDER, "gpt-5")
