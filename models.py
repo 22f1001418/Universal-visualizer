@@ -111,6 +111,7 @@ class BuildTask(BaseModel):
     dev_server_url: str = ""                 # http://127.0.0.1:PORT
     dev_server_port: int = 0
     dev_server_error: str = ""
+    static_url: str = ""           # /viz/<slug>/dist/index.html when static build succeeded
 
 
 class BuildRequest(BaseModel):
@@ -152,6 +153,7 @@ class EmbedManifestEntry(BaseModel):
     project_dir: str
     screenshot_path: str = ""
     dev_server_url: str = ""        # populated when the dev server is running
+    static_url: str = ""            # populated after npm run build succeeds
     status: Literal["ok", "failed", "skipped"] = "ok"
 
 

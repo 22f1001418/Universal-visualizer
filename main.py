@@ -38,6 +38,8 @@ from agents import (                         # noqa: E402
 )
 from dev_server import (                     # noqa: E402
     DevServerInfo,
+    StaticBuildInfo,
+    build_static_viz,
     list_dev_servers,
     shutdown_all,
     start_dev_server,
@@ -118,6 +120,7 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 # When True (default), every successful build auto-runs npm install + audit fix
 # + npm run dev so the user gets a clickable preview URL in the UI.
 AUTO_START_DEV_SERVER = os.getenv("AUTO_START_DEV_SERVER", "true").lower() in ("1", "true", "yes")
+BUILD_STATIC = os.getenv("BUILD_STATIC", "true").lower() in ("1", "true", "yes")
 
 
 # ─────────────────────────────────────────────
@@ -140,6 +143,11 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=False,
 )
+
+
+# Serve generated visualization static builds at /viz/<slug>/dist/...
+# Must be registered before the wildcard routes but after middleware.
+app.mount("/viz", StaticFiles(directory=str(VIZ_OUTPUT_DIR), html=False), name="viz_static")
 
 
 # ─────────────────────────────────────────────
@@ -476,6 +484,20 @@ def _run_build_task(job_id: str, topic_id: str) -> None:
     task.error = result.error or ""
     task.phase = "completed" if result.success else "failed"
 
+    # ── Static build — runs npm run build to produce dist/ for production serving ──
+    if result.success and result.project_dir and BUILD_STATIC:
+        status("STATIC BUILD", f"job_id={job_id}  topic_id={topic_id}  project={result.project_dir}")
+        try:
+            static_info: StaticBuildInfo = build_static_viz(result.project_dir)
+            if static_info.status == "ok":
+                slug = Path(result.project_dir).name
+                task.static_url = f"/viz/{slug}/dist/index.html"
+                logger.info("[Build %s] Static viz ready: %s", topic_id, task.static_url)
+            else:
+                logger.warning("[Build %s] Static build failed: %s", topic_id, static_info.error)
+        except Exception as e:                # noqa: BLE001
+            logger.exception("[Build %s] static build crashed: %s", topic_id, e)
+
     # ── Auto-launch the dev server so the user gets a clickable preview URL ──
     if result.success and result.project_dir and AUTO_START_DEV_SERVER:
         status("DEV SERVER", f"job_id={job_id}  topic_id={topic_id}  project={result.project_dir}")
@@ -548,6 +570,7 @@ def _build_manifest(job: JobState) -> list[EmbedManifestEntry]:
             project_dir=task.project_dir,
             screenshot_path=task.screenshot_path,
             dev_server_url=task.dev_server_url if task.dev_server_status == "running" else "",
+            static_url=task.static_url,
             status="ok" if task.phase == "completed" else "failed",
         ))
     return entries
@@ -693,4 +716,5 @@ def index() -> HTMLResponse:
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8001"))
-    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=False)
+    host = os.getenv("HOST", "0.0.0.0")
+    uvicorn.run("main:app", host=host, port=port, reload=False)

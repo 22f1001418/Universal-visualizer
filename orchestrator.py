@@ -31,7 +31,7 @@ logger = logging.getLogger("hackmd-orch.runner")
 FIXED_MAIN_PATH = Path(
     os.getenv(
         "FIXED_MAIN_PATH",
-        str(Path.cwd().parent / "fixed_main_v6.py"),
+        str(Path(__file__).resolve().parent / "fixed_main_v6.py"),
     )
 ).resolve()
 
@@ -40,7 +40,7 @@ FIXED_MAIN_PATH = Path(
 VIZ_OUTPUT_DIR = Path(
     os.getenv(
         "VIZ_OUTPUT_DIR",
-        str(Path.cwd() / "viz_outputs"),
+        str(Path(__file__).resolve().parent / "viz_outputs"),
     )
 ).resolve()
 VIZ_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

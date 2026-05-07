@@ -1,0 +1,13 @@
+.git
+.gitignore
+.venv
+.vscode
+__pycache__
+*.pyc
+*.pyo
+.env
+.env.*
+viz_outputs
+*.png
+*.jpg
+README.md

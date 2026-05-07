@@ -28,6 +28,85 @@ from typing import Optional
 
 logger = logging.getLogger("hackmd-orch.devserver")
 
+# ── Static build ─────────────────────────────────────────────────────────────
+
+@dataclass
+class StaticBuildInfo:
+    project_dir: str
+    dist_dir: str
+    status: str   # "ok" | "failed"
+    error: str = ""
+
+
+def _patch_vite_base(project_dir: Path) -> None:
+    """Insert base: "./" into vite.config so the static build works from any URL path."""
+    for fname in ("vite.config.ts", "vite.config.js"):
+        cfg = project_dir / fname
+        if not cfg.exists():
+            continue
+        text = cfg.read_text(encoding="utf-8")
+        if "base:" in text:
+            return
+        patched = re.sub(r'(defineConfig\s*\(\s*\{)', r'\1' + '\n  base: "./",' , text, count=1)
+        if patched != text:
+            cfg.write_text(patched, encoding="utf-8")
+            logger.info("[StaticBuild] patched %s with base: \"./\"", fname)
+        return
+
+
+def build_static_viz(project_dir: str) -> StaticBuildInfo:
+    """Run npm install (if needed) + npm run build to produce a deployable dist/.
+
+    Patches vite.config to use base: "./" so the built HTML works when served
+    from any URL sub-path (e.g. /viz/slug/dist/index.html).
+    Idempotent: if dist/index.html already exists, skips the build step.
+    """
+    pdir = Path(project_dir).resolve()
+    dist = pdir / "dist"
+
+    if not pdir.exists() or not (pdir / "package.json").exists():
+        return StaticBuildInfo(
+            project_dir=str(pdir), dist_dir="", status="failed",
+            error=f"Not a valid Vite project: {pdir}",
+        )
+
+    if dist.exists() and (dist / "index.html").exists():
+        logger.info("[StaticBuild] dist/ already present for %s — skipping", pdir.name)
+        return StaticBuildInfo(project_dir=str(pdir), dist_dir=str(dist), status="ok")
+
+    if not (pdir / "node_modules").exists():
+        ok, tail = _npm_install(pdir)
+        if not ok:
+            return StaticBuildInfo(
+                project_dir=str(pdir), dist_dir="", status="failed",
+                error=f"npm install failed: {tail[-300:]}",
+            )
+        _ensure_boilerplate_deps(pdir)
+
+    _patch_vite_base(pdir)
+
+    ok, tail = _run_npm_step(
+        ["npm", "run", "build"],
+        pdir,
+        NPM_INSTALL_TIMEOUT,
+        "npm run build",
+    )
+    if not ok:
+        return StaticBuildInfo(
+            project_dir=str(pdir), dist_dir="", status="failed",
+            error=f"npm run build failed: {tail[-300:]}",
+        )
+
+    if not (dist / "index.html").exists():
+        return StaticBuildInfo(
+            project_dir=str(pdir), dist_dir="", status="failed",
+            error="build reported success but dist/index.html not found",
+        )
+
+    logger.info("[StaticBuild] built dist/ for %s", pdir.name)
+    return StaticBuildInfo(project_dir=str(pdir), dist_dir=str(dist), status="ok")
+
+
 
 # ── Config ──────────────────────────────────────────────
 PORT_RANGE_START = int(os.getenv("DEV_SERVER_PORT_START", "5180"))

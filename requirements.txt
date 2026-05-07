@@ -4,3 +4,4 @@ python-multipart>=0.0.9
 python-dotenv>=1.0.0
 openai>=1.66.0
 pydantic>=2.0.0
+playwright>=1.40.0

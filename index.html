@@ -701,7 +701,8 @@ function Done({ jobId, onError, onRestart }) {
       if (cancelled || !j) return;
       const builds = Object.values(j.builds || {});
       const anyStarting = builds.some(b => b.dev_server_status === "starting");
-      if (anyStarting) {
+      const anyBuilding = builds.some(b => !["completed","failed"].includes(b.phase));
+      if (anyStarting || anyBuilding) {
         timerRef.current = setTimeout(tick, 2000);
       }
     }
@@ -746,8 +747,8 @@ function Done({ jobId, onError, onRestart }) {
       <div className="kicker">Step 05 — manifest</div>
       <h1>Done. <span style={{color:'var(--accent)'}}>{data.manifest.length}</span> viz{data.manifest.length===1?"":"s"} ready to embed.</h1>
       <p className="lead" style={{marginTop:8}}>
-        Each viz also has a live dev server running locally. Click <strong>Open Live Preview</strong>{" "}
-        to view the actual animation in a new tab.
+        Each viz has been compiled to a static bundle. Click <strong>Open Viz</strong> to view it in a new tab.
+        (On local dev, you can also start the live dev server for hot-reload.)
       </p>
 
       <div style={{marginTop:36, display:'flex', flexDirection:'column', gap:18}}>
@@ -779,17 +780,26 @@ function Done({ jobId, onError, onRestart }) {
                 </div>
               )}
 
-              {/* ── Live dev server status + controls ── */}
+              {/* ── Preview: static URL (production) or dev server (local) ── */}
               <div style={{marginTop:18}}>
-                <div className="kicker">Live preview</div>
-                <DevServerControls
-                  status={dsStatus}
-                  url={dsUrl}
-                  error={dsErr}
-                  busy={isBusy}
-                  onStart={() => tid && startServer(tid)}
-                  onStop={() => tid && stopServer(tid)}
-                />
+                <div className="kicker">Preview</div>
+                {m.static_url ? (
+                  <div style={{display:"flex", gap:12, alignItems:"center", flexWrap:"wrap", marginTop:8}}>
+                    <a href={m.static_url} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
+                      <button className="primary">Open Viz ↗</button>
+                    </a>
+                    <code style={{padding:"4px 10px", background:"var(--bg-0)", border:"1px solid var(--line)", fontSize:"0.8rem"}}>{m.static_url}</code>
+                  </div>
+                ) : (
+                  <DevServerControls
+                    status={dsStatus}
+                    url={dsUrl}
+                    error={dsErr}
+                    busy={isBusy}
+                    onStart={() => tid && startServer(tid)}
+                    onStop={() => tid && stopServer(tid)}
+                  />
+                )}
               </div>
 
               <div style={{marginTop:18}}>
