@@ -156,6 +156,8 @@ app.mount("/viz", StaticFiles(directory=str(VIZ_OUTPUT_DIR), html=False), name="
 
 @app.on_event("startup")
 def _on_startup() -> None:
+    VIZ_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     status("SERVER STARTUP", f"text_model={TEXT_MODEL}")
     logger.info("[Startup] OPENAI_API_KEY present: %s",
                 "yes" if os.getenv("OPENAI_API_KEY") else "NO")
