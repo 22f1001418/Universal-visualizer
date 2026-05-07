@@ -58,12 +58,18 @@ def _patch_vite_base(project_dir: Path) -> None:
 
 
 def build_static_viz(project_dir: str) -> StaticBuildInfo:
-    """Run npm install (if needed) + npm run build to produce a deployable dist/.
+    """Compile the generated Vite project to a static dist/ bundle.
 
-    Patches vite.config to use base: "./" so the built HTML works when served
-    from any URL sub-path (e.g. /viz/slug/dist/index.html).
-    Idempotent: if dist/index.html already exists, skips the build step.
+    Strategy (avoids a second npm install which fails on Railway):
+      1. Use node_modules/.bin/vite directly — fixed_main_v6.py already ran
+         npm install, so the binary is there. Pass --base ./ via CLI so
+         assets use relative paths and work from any URL sub-path.
+      2. Only fall back to npm install + npm run build if the vite binary
+         is missing for some reason.
+    Idempotent: skips if dist/index.html already exists.
     """
+    import shutil as _shutil
+
     pdir = Path(project_dir).resolve()
     dist = pdir / "dist"
 
@@ -73,26 +79,28 @@ def build_static_viz(project_dir: str) -> StaticBuildInfo:
             error=f"Not a valid Vite project: {pdir}",
         )
 
-    # Only skip if dist/ exists AND both vite configs already have base: "./"
-    # (avoids re-running a correct build, but forces rebuild if base was missing)
-    def _configs_have_base() -> bool:
-        for fname in ("vite.config.ts", "vite.config.js"):
-            cfg = pdir / fname
-            if cfg.exists() and "base:" not in cfg.read_text(encoding="utf-8"):
-                return False
-        return True
-
-    if dist.exists() and (dist / "index.html").exists() and _configs_have_base():
+    if dist.exists() and (dist / "index.html").exists():
         logger.info("[StaticBuild] dist/ already present for %s — skipping", pdir.name)
         return StaticBuildInfo(project_dir=str(pdir), dist_dir=str(dist), status="ok")
 
-    # Remove stale dist/ so the build starts clean
+    # Remove any stale / partial dist/
     if dist.exists():
-        import shutil as _shutil
         _shutil.rmtree(dist)
-        logger.info("[StaticBuild] removed stale dist/ for %s (will rebuild with base: './')", pdir.name)
 
-    if not (pdir / "node_modules").exists():
+    vite_bin = pdir / "node_modules" / ".bin" / "vite"
+
+    if vite_bin.exists():
+        # Happy path: use the already-installed Vite binary, no npm install needed.
+        # --base ./ makes all asset paths relative so the bundle works from /viz/<slug>/dist/.
+        ok, tail = _run_npm_step(
+            [str(vite_bin), "build", "--base", "./"],
+            pdir,
+            NPM_INSTALL_TIMEOUT,
+            "vite build --base ./",
+        )
+    else:
+        # Fallback: vite binary missing, run a full npm install first.
+        logger.warning("[StaticBuild] vite binary not found for %s — running npm install", pdir.name)
         ok, tail = _npm_install(pdir)
         if not ok:
             return StaticBuildInfo(
@@ -100,19 +108,18 @@ def build_static_viz(project_dir: str) -> StaticBuildInfo:
                 error=f"npm install failed: {tail[-300:]}",
             )
         _ensure_boilerplate_deps(pdir)
+        _patch_vite_base(pdir)
+        ok, tail = _run_npm_step(
+            ["npm", "run", "build"],
+            pdir,
+            NPM_INSTALL_TIMEOUT,
+            "npm run build",
+        )
 
-    _patch_vite_base(pdir)
-
-    ok, tail = _run_npm_step(
-        ["npm", "run", "build"],
-        pdir,
-        NPM_INSTALL_TIMEOUT,
-        "npm run build",
-    )
     if not ok:
         return StaticBuildInfo(
             project_dir=str(pdir), dist_dir="", status="failed",
-            error=f"npm run build failed: {tail[-300:]}",
+            error=f"vite build failed: {tail[-300:]}",
         )
 
     if not (dist / "index.html").exists():
