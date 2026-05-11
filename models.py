@@ -113,6 +113,14 @@ class BuildTask(BaseModel):
     dev_server_error: str = ""
     static_url: str = ""           # /viz/<slug>/dist/index.html when static build succeeded
 
+    # GitHub Pages publishing
+    github_repo: str = ""
+    github_module: str = ""
+    github_class: str = ""
+    github_pages_url: str = ""
+    github_pages_status: str = "not_started"   # not_started | pending | live | failed
+    github_pages_error: str = ""
+
 
 class BuildRequest(BaseModel):
     """Request payload from the frontend when the user picks a suggestion."""
@@ -126,6 +134,8 @@ class BuildRequest(BaseModel):
         max_length=2000,
         description="Optional free-text customisation appended to the chosen suggestion.",
     )
+    github_module: str = Field("", max_length=200, description="Module folder name on GitHub.")
+    github_class: str = Field("", max_length=200, description="Class folder name on GitHub.")
 
 
 # ──────────────────────────────────────────────
