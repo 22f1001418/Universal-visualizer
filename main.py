@@ -21,7 +21,7 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
@@ -477,6 +477,154 @@ def _patch_vite_config_base(project_dir: Path, on_log) -> None:
     on_log("[vite-config] no vite.config.{ts,js,mts} found — skipping patch")
 
 
+# ── ErrorBoundary injection ───────────────────────────────────────────────────
+# If the LLM-generated App throws during the first render, React 18 unmounts the
+# whole tree by default → a blank/black page on the deployed host with no clue
+# about what went wrong. We wrap <App/> in a class-based ErrorBoundary so the
+# actual error message + stack is visible on the page itself. Uses inline styles
+# so it works even if Tailwind / index.css failed to load.
+
+_ERROR_BOUNDARY_SOURCE = '''import { Component, ErrorInfo, ReactNode } from 'react';
+
+interface State {
+  error: Error | null;
+  info: ErrorInfo | null;
+}
+
+export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
+  state: State = { error: null, info: null };
+
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    // Surfaces in the deployed page's DevTools console too.
+    // eslint-disable-next-line no-console
+    console.error('[ErrorBoundary]', error, info);
+    this.setState({ info });
+  }
+
+  render(): ReactNode {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div style={{
+        minHeight: '100vh',
+        padding: '32px',
+        background: '#0f1117',
+        color: '#fca5a5',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        fontSize: '14px',
+        lineHeight: 1.55,
+        overflow: 'auto',
+      }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <h1 style={{ color: '#f87171', fontSize: '20px', marginBottom: 12 }}>
+            Visualization failed to render
+          </h1>
+          <p style={{ color: '#cbd5e1', marginBottom: 18 }}>
+            A JavaScript error was thrown during the first render. The viz
+            cannot mount until this is fixed. Details below.
+          </p>
+          <div style={{
+            background: '#1a1d28',
+            border: '1px solid #3f3f46',
+            borderRadius: 6,
+            padding: '14px 16px',
+            marginBottom: 14,
+          }}>
+            <div style={{ color: '#fca5a5', fontWeight: 600, marginBottom: 6 }}>
+              {this.state.error.name}: {this.state.error.message}
+            </div>
+            {this.state.error.stack && (
+              <pre style={{ whiteSpace: 'pre-wrap', color: '#94a3b8', margin: 0 }}>
+                {this.state.error.stack}
+              </pre>
+            )}
+          </div>
+          {this.state.info?.componentStack && (
+            <details>
+              <summary style={{ cursor: 'pointer', color: '#cbd5e1' }}>
+                React component stack
+              </summary>
+              <pre style={{ whiteSpace: 'pre-wrap', color: '#94a3b8', marginTop: 10 }}>
+                {this.state.info.componentStack}
+              </pre>
+            </details>
+          )}
+        </div>
+      </div>
+    );
+  }
+}
+'''
+
+
+def _inject_error_boundary(project_dir: Path, on_log) -> None:
+    """Wrap <App/> in src/main.tsx with an ErrorBoundary so first-render
+    crashes show a visible diagnostic on the deployed page instead of a
+    blank screen. Idempotent — re-running on a patched project is a no-op.
+    """
+    src_dir = project_dir / "src"
+    if not src_dir.is_dir():
+        on_log("[error-boundary] no src/ — skipping")
+        return
+
+    boundary_path = src_dir / "ErrorBoundary.tsx"
+    if not boundary_path.exists():
+        boundary_path.write_text(_ERROR_BOUNDARY_SOURCE, encoding="utf-8")
+        on_log("[error-boundary] wrote src/ErrorBoundary.tsx")
+
+    # Find the project's entry file. main.tsx is the Vite default; fall back to
+    # index.tsx if the LLM picked that name instead.
+    entry: Optional[Path] = None
+    for candidate in ("main.tsx", "index.tsx", "main.jsx", "index.jsx"):
+        p = src_dir / candidate
+        if p.exists():
+            entry = p
+            break
+    if entry is None:
+        on_log("[error-boundary] no src/main.tsx or index.tsx — skipping wrap")
+        return
+
+    text = entry.read_text(encoding="utf-8")
+    if "ErrorBoundary" in text:
+        on_log(f"[error-boundary] {entry.name} already wraps in ErrorBoundary — skipping")
+        return
+
+    # 1. Add the import after the existing imports.
+    import_line = "import { ErrorBoundary } from './ErrorBoundary';"
+    if "from 'react-dom/client'" in text:
+        new_text = text.replace(
+            "from 'react-dom/client';",
+            f"from 'react-dom/client';\n{import_line}",
+            1,
+        )
+    else:
+        new_text = import_line + "\n" + text
+
+    # 2. Wrap the first <App /> usage. The generator emits one of these shapes;
+    #    we cover both. JSX self-closing vs explicit pair.
+    replacements = [
+        ("<App />",       "<ErrorBoundary><App /></ErrorBoundary>"),
+        ("<App/>",        "<ErrorBoundary><App/></ErrorBoundary>"),
+        ("<App></App>",   "<ErrorBoundary><App></App></ErrorBoundary>"),
+    ]
+    wrapped = False
+    for old, new in replacements:
+        if old in new_text and "ErrorBoundary" not in old:
+            new_text = new_text.replace(old, new, 1)
+            wrapped = True
+            break
+
+    if not wrapped:
+        on_log(f"[error-boundary] couldn't locate <App/> in {entry.name} — skipping wrap")
+        return
+
+    entry.write_text(new_text, encoding="utf-8")
+    on_log(f"[error-boundary] wrapped <App/> in {entry.name}")
+
+
 def _run_build_task(job_id: str, topic_id: str) -> None:
     """Background-task wrapper: runs the subprocess builder, updates job state."""
     job = job_store.get(job_id)
@@ -534,6 +682,18 @@ def _run_build_task(job_id: str, topic_id: str) -> None:
             _patch_vite_config_base(Path(result.project_dir), on_log=on_log)
         except Exception as exc:                # noqa: BLE001 — patcher must never crash the build
             logger.warning("[Build %s] vite.config patch skipped: %s", topic_id, exc)
+
+    # ── Wrap <App/> in an ErrorBoundary so first-render crashes are visible ──
+    # The LLM-generated App.tsx occasionally throws on initial render (bad
+    # regex, undefined access, etc.). Without a boundary, React 18 unmounts
+    # the tree and the deployed page goes blank with no clue. The boundary
+    # renders the actual error + stack inline so the failure is debuggable
+    # from the deployed page itself.
+    if result.success and result.project_dir:
+        try:
+            _inject_error_boundary(Path(result.project_dir), on_log=on_log)
+        except Exception as exc:                # noqa: BLE001
+            logger.warning("[Build %s] ErrorBoundary injection skipped: %s", topic_id, exc)
 
     # ── Publish the viz to its own standalone GitHub repo ──
     if result.success and result.project_dir and PUBLISH_TO_GITHUB:
