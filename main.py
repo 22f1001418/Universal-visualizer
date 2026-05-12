@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import sys
 import uuid
 from datetime import datetime
@@ -430,6 +431,52 @@ async def build_topic_viz(
     }
 
 
+_VITE_BASE_RE = re.compile(r"base\s*:\s*['\"]([^'\"]*)['\"]")
+
+
+def _patch_vite_config_base(project_dir: Path, on_log) -> None:
+    """Ensure the generated vite.config.{ts,js} sets `base: './'`.
+
+    The viz generator emits a vite.config.ts without a `base` field, which makes
+    `vite build` produce a dist/index.html with absolute asset paths (`/assets/…`).
+    That works on a root-domain deploy but breaks on any subpath deploy. Setting
+    `base: './'` makes the paths relative and works in both cases.
+
+    Idempotent: if `base` is already set to './' or '', leaves the file alone.
+    If `base` is set to something else, rewrites it. Tries .ts first, then .js.
+    """
+    for name in ("vite.config.ts", "vite.config.js", "vite.config.mts"):
+        cfg = project_dir / name
+        if not cfg.exists():
+            continue
+        src = cfg.read_text(encoding="utf-8")
+
+        existing = _VITE_BASE_RE.search(src)
+        if existing:
+            if existing.group(1) in ("./", ""):
+                on_log(f"[vite-config] {name} already has base='{existing.group(1)}' — skipping")
+                return
+            new_src = _VITE_BASE_RE.sub("base: './'", src, count=1)
+        else:
+            # Inject `base: './'` as the first key inside `defineConfig({ … })`.
+            # The regex is forgiving about whitespace and call style.
+            new_src, n = re.subn(
+                r"defineConfig\s*\(\s*\{",
+                "defineConfig({\n  base: './',",
+                src,
+                count=1,
+            )
+            if n == 0:
+                on_log(f"[vite-config] {name}: defineConfig({{...}}) not found, skipping")
+                return
+
+        cfg.write_text(new_src, encoding="utf-8")
+        on_log(f"[vite-config] patched {name} → base: './'")
+        return
+
+    on_log("[vite-config] no vite.config.{ts,js,mts} found — skipping patch")
+
+
 def _run_build_task(job_id: str, topic_id: str) -> None:
     """Background-task wrapper: runs the subprocess builder, updates job state."""
     job = job_store.get(job_id)
@@ -476,6 +523,17 @@ def _run_build_task(job_id: str, topic_id: str) -> None:
     task.screenshot_path = result.screenshot_path
     task.error = result.error or ""
     task.phase = "completed" if result.success else "failed"
+
+    # ── Patch vite.config.ts to use relative asset paths (base: './') ──
+    # Without this, dist/index.html references /assets/... absolutely, which
+    # 404s on any subpath deploy AND looks broken if a host serves the source
+    # repo root instead of dist/. Safe to apply unconditionally — `./` works
+    # at root and subpath alike.
+    if result.success and result.project_dir:
+        try:
+            _patch_vite_config_base(Path(result.project_dir), on_log=on_log)
+        except Exception as exc:                # noqa: BLE001 — patcher must never crash the build
+            logger.warning("[Build %s] vite.config patch skipped: %s", topic_id, exc)
 
     # ── Publish the viz to its own standalone GitHub repo ──
     if result.success and result.project_dir and PUBLISH_TO_GITHUB:
