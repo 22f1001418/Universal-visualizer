@@ -300,16 +300,6 @@ const TRACKS = [
   "DSML DA", "DSML DS", "AIML", "DevOps",
 ];
 
-const TRACK_TO_REPO = {
-  "Academy DSA":      "Academy-DSA",
-  "Academy Fullstack": "Academy-Fullstack",
-  "Academy Backend":  "Academy-Backend",
-  "DSML DA":          "DSML-DA",
-  "DSML DS":          "DSML-DS",
-  "AIML":             "AIML",
-  "DevOps":           "DevOps",
-};
-
 function slugify(s) {
   return s.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-|-$/g, "");
 }
@@ -339,122 +329,42 @@ async function api(path, opts = {}) {
 }
 
 // ───────────────────────────────────
-// GitHub destination picker — module + class selection
+// GitHub publish status — one standalone repo per viz
+// (replaces the old module/class destination picker + Pages status)
 // ───────────────────────────────────
-function GithubDestPicker({ repo, onModuleChange, onClassChange }) {
-  const [modules, setModules] = useState([]);
-  const [classes, setClasses] = useState([]);
-  const [module, setModule] = useState("");
-  const [ghClass, setGhClass] = useState("");
-  const [loadingMods, setLoadingMods] = useState(true);
-  const [loadingCls, setLoadingCls] = useState(false);
-
-  useEffect(() => {
-    if (!repo) return;
-    setLoadingMods(true);
-    api(`/github/repos/${repo}/modules`)
-      .then(r => setModules(r.modules || []))
-      .catch(() => {})
-      .finally(() => setLoadingMods(false));
-  }, [repo]);
-
-  useEffect(() => {
-    onModuleChange(module);
-    setGhClass(""); onClassChange("");
-    if (!module) { setClasses([]); return; }
-    setLoadingCls(true);
-    api(`/github/repos/${repo}/modules/${encodeURIComponent(module)}/classes`)
-      .then(r => setClasses(r.classes || []))
-      .catch(() => {})
-      .finally(() => setLoadingCls(false));
-  }, [module]);
-
-  useEffect(() => { onClassChange(ghClass); }, [ghClass]);
-
-  return (
-    <div className="panel" style={{marginTop:16}}>
-      <div className="kicker">GitHub Destination</div>
-      <p className="tiny" style={{marginTop:4, marginBottom:18}}>
-        Viz will be published to{" "}
-        <code>scaler-content/{repo}/{module || "…"}/{ghClass || "…"}/</code>
-      </p>
-      <div className="grid-2">
-        <div>
-          <label>
-            Module{" "}
-            {loadingMods && <span className="spinner" style={{width:10,height:10,borderWidth:1.5}}/>}
-          </label>
-          <input
-            list="gh-modules-list"
-            value={module}
-            onChange={e => setModule(e.target.value)}
-            placeholder="e.g. neural-networks"
-            autoComplete="off"
-          />
-          <datalist id="gh-modules-list">
-            {modules.map(m => <option key={m} value={m}/>)}
-          </datalist>
-          {module && slugify(module) !== module && (
-            <div className="tiny" style={{marginTop:4}}>will be stored as: <code>{slugify(module)}</code></div>
-          )}
-        </div>
-        <div>
-          <label>
-            Class{" "}
-            {loadingCls && <span className="spinner" style={{width:10,height:10,borderWidth:1.5}}/>}
-          </label>
-          <input
-            list="gh-classes-list"
-            value={ghClass}
-            onChange={e => setGhClass(e.target.value)}
-            placeholder="e.g. class-01"
-            disabled={!module}
-            autoComplete="off"
-          />
-          <datalist id="gh-classes-list">
-            {classes.map(c => <option key={c} value={c}/>)}
-          </datalist>
-          {ghClass && slugify(ghClass) !== ghClass && (
-            <div className="tiny" style={{marginTop:4}}>will be stored as: <code>{slugify(ghClass)}</code></div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// GitHub Pages live status indicator
-function GithubPagesStatus({ url, status, error }) {
-  if (status === "live") {
+function GithubRepoStatus({ status, repoUrl, repoName, error }) {
+  if (status === "published" && repoUrl) {
     return (
       <div style={{display:"flex", gap:12, alignItems:"center", flexWrap:"wrap", marginTop:8}}>
-        <a href={url} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
-          <button className="primary">Open on GitHub Pages ↗</button>
+        <a href={repoUrl} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
+          <button className="primary">View on GitHub ↗</button>
         </a>
         <code style={{padding:"4px 10px", background:"var(--bg-0)", border:"1px solid var(--line)",
-          fontSize:"0.78rem", wordBreak:"break-all"}}>{url}</code>
+          fontSize:"0.78rem", wordBreak:"break-all"}}>{repoUrl}</code>
       </div>
     );
   }
-  if (status === "pending") {
+  if (status === "publishing") {
     return (
       <div className="tiny" style={{marginTop:8, display:"flex", alignItems:"center", gap:8}}>
         <span className="spinner"/>
-        GitHub Pages building…
-        <code style={{padding:"2px 8px", background:"var(--bg-0)", border:"1px solid var(--line)",
-          fontSize:"0.78rem"}}>{url}</code>
+        Publishing to GitHub…
       </div>
     );
   }
-  if (status === "failed" && url) {
+  if (status === "failed") {
     return (
       <div style={{marginTop:8}}>
         <div className="error" style={{margin:0}}>
-          GitHub Pages failed{error ? `: ${error.slice(0, 200)}` : ""}
+          GitHub publish failed{error ? `: ${error.slice(0, 240)}` : ""}
         </div>
-        <code style={{display:"block", marginTop:6, padding:"4px 10px",
-          background:"var(--bg-0)", border:"1px solid var(--line)",
-          fontSize:"0.78rem", wordBreak:"break-all"}}>{url}</code>
+      </div>
+    );
+  }
+  if (status === "skipped") {
+    return (
+      <div className="tiny" style={{marginTop:8, opacity:0.7}}>
+        GitHub publish skipped{error ? ` — ${error}` : ""}
       </div>
     );
   }
@@ -638,10 +548,6 @@ function Suggestions({ job, topic, onBuildQueued, onBack, onError }) {
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [ghModule, setGhModule] = useState("");
-  const [ghClass, setGhClass] = useState("");
-
-  const repo = TRACK_TO_REPO[job.track] || "";
 
   useEffect(() => {
     let cancelled = false;
@@ -658,7 +564,6 @@ function Suggestions({ job, topic, onBuildQueued, onBack, onError }) {
 
   async function build() {
     if (!picked && !notes.trim()) { onError("Pick a suggestion or write custom notes."); return; }
-    if (!ghModule.trim() || !ghClass.trim()) { onError("Choose a module and class name for GitHub storage."); return; }
     setBusy(true);
     try {
       await api(`/jobs/${job.job_id}/topics/${topic.id}/build`, {
@@ -667,8 +572,6 @@ function Suggestions({ job, topic, onBuildQueued, onBack, onError }) {
         body: JSON.stringify({
           suggestion_id: picked || null,
           custom_notes: notes,
-          github_module: ghModule.trim(),
-          github_class: ghClass.trim(),
         }),
       });
       onBuildQueued();
@@ -722,18 +625,17 @@ function Suggestions({ job, topic, onBuildQueued, onBack, onError }) {
             />
           </div>
 
-          <GithubDestPicker
-            repo={repo}
-            onModuleChange={setGhModule}
-            onClassChange={setGhClass}
-          />
+          <div className="tiny" style={{marginTop:16, opacity:0.75}}>
+            On success, the generated viz will be pushed to a brand-new GitHub repo
+            (if <code>GITHUB_TOKEN</code> is configured on the server).
+          </div>
 
           <div className="row-actions" style={{marginTop:16}}>
             <button className="ghost" onClick={onBack}>← Back to topics</button>
             <button
               className="primary"
               onClick={build}
-              disabled={busy || (!picked && !notes.trim()) || !ghModule.trim() || !ghClass.trim()}
+              disabled={busy || (!picked && !notes.trim())}
             >
               {busy ? <><span className="spinner"/> Queuing build…</> : "Build this viz →"}
             </button>
@@ -857,8 +759,8 @@ function Done({ jobId, onError, onRestart }) {
       const builds = Object.values(j.builds || {});
       const anyStarting = builds.some(b => b.dev_server_status === "starting");
       const anyBuilding = builds.some(b => !["completed","failed"].includes(b.phase));
-      const anyPagesPending = builds.some(b => b.github_pages_status === "pending");
-      if (anyStarting || anyBuilding || anyPagesPending) {
+      const anyPublishing = builds.some(b => b.github_status === "publishing");
+      if (anyStarting || anyBuilding || anyPublishing) {
         timerRef.current = setTimeout(tick, 2000);
       }
     }
@@ -940,19 +842,20 @@ function Done({ jobId, onError, onRestart }) {
               <div style={{marginTop:18}}>
                 <div className="kicker">Preview</div>
 
-                {/* GitHub Pages — primary (production) */}
-                {build && build.github_pages_url && (
-                  <GithubPagesStatus
-                    url={build.github_pages_url}
-                    status={build.github_pages_status}
-                    error={build.github_pages_error || ""}
+                {/* GitHub repo — primary (deploy this elsewhere) */}
+                {build && build.github_status && build.github_status !== "not_started" && (
+                  <GithubRepoStatus
+                    status={build.github_status}
+                    repoUrl={build.github_repo_url}
+                    repoName={build.github_repo_name}
+                    error={build.github_error || ""}
                   />
                 )}
 
                 {/* Static local URL — secondary */}
                 {m.static_url && (
                   <div style={{display:"flex", gap:12, alignItems:"center", flexWrap:"wrap",
-                    marginTop: build && build.github_pages_url ? 12 : 8}}>
+                    marginTop: build && build.github_status === "published" ? 12 : 8}}>
                     <span className="tiny">Local build:</span>
                     <a href={m.static_url} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
                       <button>Open local ↗</button>
@@ -961,7 +864,7 @@ function Done({ jobId, onError, onRestart }) {
                 )}
 
                 {/* Dev server — fallback (local dev only) */}
-                {(!build || !build.github_pages_url) && !m.static_url && (
+                {(!build || build.github_status !== "published") && !m.static_url && (
                   <DevServerControls
                     status={dsStatus}
                     url={dsUrl}
