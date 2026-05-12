@@ -25,6 +25,7 @@ import requests
 
 logger = logging.getLogger("hackmd-orch.github")
 
+GITHUB_TOKEN  = os.getenv("GITHUB_TOKEN", "")
 GITHUB_ORG    = "scaler-content"
 GITHUB_API    = "https://api.github.com"
 GITHUB_PAGES_DOMAIN = f"https://{GITHUB_ORG}.github.io"
@@ -46,11 +47,10 @@ PAGES_POLL_TIMEOUT  = 300  # give up after 5 minutes
 # ── Auth header ───────────────────────────────────────────────────────────────
 
 def _h() -> dict[str, str]:
-    token = os.getenv("GITHUB_TOKEN", "")
-    if not token:
+    if not GITHUB_TOKEN:
         raise RuntimeError("GITHUB_TOKEN env var not set — cannot publish to GitHub")
     return {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
