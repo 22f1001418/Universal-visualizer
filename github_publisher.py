@@ -88,7 +88,7 @@ def _repo_exists(repo: str) -> bool:
 
 def _create_repo(repo: str) -> None:
     r = requests.post(
-        f"{GITHUB_API}/orgs/{GITHUB_ORG}/repos",
+        f"{GITHUB_API}/user/repos",
         headers=_h(),
         json={
             "name": repo,
