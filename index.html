@@ -15,20 +15,23 @@
 
 <style>
 :root {
-  --bg-0: #0e0d0b;
-  --bg-1: #16140f;
-  --bg-2: #1d1a14;
-  --line: #2c281f;
-  --ink-0: #f3eedf;
-  --ink-1: #c9c2ad;
-  --ink-2: #8d8775;
-  --ink-3: #5e5949;
-  --accent: #e7733e;        /* burnt amber */
-  --accent-soft: #f3a472;
-  --good: #7fc28b;
-  --warn: #e5c07b;
-  --bad:  #d97062;
-  --grain-opacity: 0.02;
+  /* Clean-light theme. Surfaces step from page → panels → inset; ink steps
+     from primary → muted → disabled. Accent is a deeper amber so it still
+     reads as a CTA against the off-white page. */
+  --bg-0: #fafaf7;          /* page background — off-white, slightly warm */
+  --bg-1: #ffffff;          /* panels / cards */
+  --bg-2: #f1ede2;          /* inset surfaces, progress troughs, codeblocks */
+  --line: #e6e3da;          /* hairline borders */
+  --ink-0: #16140f;         /* primary text */
+  --ink-1: #3c3a32;         /* body text */
+  --ink-2: #6b6857;         /* muted / labels */
+  --ink-3: #9b9684;         /* very muted / breadcrumbs */
+  --accent: #c25a25;        /* deep burnt amber — primary CTA + emphasis */
+  --accent-soft: #e7733e;   /* hover state */
+  --good: #2f7d3e;
+  --warn: #a8741f;
+  --bad:  #b3361f;
+  --grain-opacity: 0;       /* grain reads as dirt on light bg — disabled */
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -44,14 +47,15 @@ html, body {
   min-height: 100vh;
 }
 
-/* Subtle grain texture for atmosphere */
+/* Subtle warm wash for atmosphere — soft amber halos in the corners.
+   Opacity is tuned for the light palette: any higher reads as a stain. */
 body::before {
   content: '';
   position: fixed; inset: 0;
   pointer-events: none;
   background-image:
-    radial-gradient(circle at 20% 30%, rgba(231,115,62,0.04), transparent 40%),
-    radial-gradient(circle at 80% 70%, rgba(231,115,62,0.03), transparent 50%);
+    radial-gradient(circle at 20% 30%, rgba(194,90,37,0.05), transparent 45%),
+    radial-gradient(circle at 80% 70%, rgba(194,90,37,0.04), transparent 50%);
   z-index: 0;
 }
 
@@ -142,6 +146,10 @@ label { display: block; color: var(--ink-2); font-size: 0.85rem; margin-bottom: 
 .panel {
   background: var(--bg-1);
   border: 1px solid var(--line);
+  /* Soft elevation so cards lift off the off-white page. In the dark theme
+     they sat on a near-black bg and needed no shadow; on light, a hairline
+     shadow is what tells the eye "this is a surface". */
+  box-shadow: 0 1px 2px rgba(22,20,15,0.04), 0 1px 1px rgba(22,20,15,0.03);
   padding: 36px;
   margin-bottom: 24px;
   border-radius: 2px;
@@ -168,6 +176,7 @@ label { display: block; color: var(--ink-2); font-size: 0.85rem; margin-bottom: 
 
 .topic-card, .sug-card {
   background: var(--bg-1); border: 1px solid var(--line);
+  box-shadow: 0 1px 2px rgba(22,20,15,0.03);
   padding: 22px 24px; border-radius: 2px;
   cursor: pointer; transition: all 160ms;
   position: relative;
@@ -175,7 +184,7 @@ label { display: block; color: var(--ink-2); font-size: 0.85rem; margin-bottom: 
 .topic-card:hover, .sug-card:hover { border-color: var(--accent); }
 .topic-card.selected, .sug-card.selected {
   border-color: var(--accent);
-  background: linear-gradient(180deg, rgba(231,115,62,0.05), transparent);
+  background: linear-gradient(180deg, rgba(194,90,37,0.06), transparent);
 }
 .topic-card .num, .sug-card .num {
   position: absolute; top: 16px; right: 18px;
@@ -202,9 +211,9 @@ label { display: block; color: var(--ink-2); font-size: 0.85rem; margin-bottom: 
   letter-spacing: 0.08em; text-transform: uppercase;
   margin-top: 10px; border: 1px solid var(--line);
 }
-.diff-pill.beginner       { color: var(--good);  border-color: rgba(127,194,139,0.3); }
-.diff-pill.intermediate   { color: var(--warn);  border-color: rgba(229,192,123,0.3); }
-.diff-pill.advanced       { color: var(--bad);   border-color: rgba(217,112,98,0.3); }
+.diff-pill.beginner       { color: var(--good);  border-color: rgba(47,125,62,0.35);  background: rgba(47,125,62,0.06); }
+.diff-pill.intermediate   { color: var(--warn);  border-color: rgba(168,116,31,0.35); background: rgba(168,116,31,0.06); }
+.diff-pill.advanced       { color: var(--bad);   border-color: rgba(179,54,31,0.35);  background: rgba(179,54,31,0.06); }
 
 .complexity-badge {
   font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
@@ -225,7 +234,7 @@ label { display: block; color: var(--ink-2); font-size: 0.85rem; margin-bottom: 
 
 .error {
   border: 1px solid var(--bad);
-  background: rgba(217,112,98,0.05);
+  background: rgba(179,54,31,0.06);
   color: var(--bad);
   padding: 14px 18px; border-radius: 2px; margin-bottom: 18px;
   font-size: 0.9rem;
