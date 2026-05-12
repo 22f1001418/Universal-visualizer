@@ -25,10 +25,6 @@ RUN mkdir -p viz_outputs
 
 # Tell the orchestrator where fixed_main_v6.py lives (same dir as app)
 ENV FIXED_MAIN_PATH=/app/fixed_main_v6.py
-# In production: no live dev servers (they bind localhost ports inaccessible from outside)
-ENV AUTO_START_DEV_SERVER=false
-# Always run npm run build after generation so vizzes are statically servable
-ENV BUILD_STATIC=true
 
 EXPOSE 8001
 

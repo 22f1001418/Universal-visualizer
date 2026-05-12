@@ -106,13 +106,6 @@ class BuildTask(BaseModel):
     error: str = ""
     token_usage: dict = Field(default_factory=dict)
 
-    # Auto-launched dev server (npm install + audit fix + npm run dev)
-    dev_server_status: str = "not_started"   # not_started | starting | running | failed | stopped
-    dev_server_url: str = ""                 # http://127.0.0.1:PORT
-    dev_server_port: int = 0
-    dev_server_error: str = ""
-    static_url: str = ""           # /viz/<slug>/dist/index.html when static build succeeded
-
     # GitHub publish — each successful build gets its own standalone repo
     github_status: str = "not_started"       # not_started | publishing | published | skipped | failed
     github_repo_url: str = ""                # https://github.com/<owner>/<repo>
@@ -164,8 +157,6 @@ class EmbedManifestEntry(BaseModel):
     viz_brief: str
     project_dir: str
     screenshot_path: str = ""
-    dev_server_url: str = ""        # populated when the dev server is running
-    static_url: str = ""            # populated after npm run build succeeds
     github_repo_url: str = ""       # standalone repo for this viz (if published)
     status: Literal["ok", "failed", "skipped"] = "ok"
 

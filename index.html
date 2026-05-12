@@ -737,7 +737,6 @@ function BuildCard({ build, topic }) {
 function Done({ jobId, onError, onRestart }) {
   const [data, setData] = useState(null);
   const [job, setJob] = useState(null);
-  const [busyTid, setBusyTid] = useState("");
   const timerRef = useRef(null);
 
   async function refresh() {
@@ -757,10 +756,9 @@ function Done({ jobId, onError, onRestart }) {
       const j = await refresh();
       if (cancelled || !j) return;
       const builds = Object.values(j.builds || {});
-      const anyStarting = builds.some(b => b.dev_server_status === "starting");
       const anyBuilding = builds.some(b => !["completed","failed"].includes(b.phase));
       const anyPublishing = builds.some(b => b.github_status === "publishing");
-      if (anyStarting || anyBuilding || anyPublishing) {
+      if (anyBuilding || anyPublishing) {
         timerRef.current = setTimeout(tick, 2000);
       }
     }
@@ -783,43 +781,20 @@ function Done({ jobId, onError, onRestart }) {
   }
   function copy() { navigator.clipboard?.writeText(json); }
 
-  async function startServer(tid) {
-    setBusyTid(tid);
-    try {
-      await api(`/jobs/${jobId}/topics/${tid}/dev-server/start`, { method: "POST" });
-      await refresh();
-    } catch (e) { onError(e); }
-    finally { setBusyTid(""); }
-  }
-  async function stopServer(tid) {
-    setBusyTid(tid);
-    try {
-      await api(`/jobs/${jobId}/topics/${tid}/dev-server/stop`, { method: "POST" });
-      await refresh();
-    } catch (e) { onError(e); }
-    finally { setBusyTid(""); }
-  }
-
   return (
     <div>
       <div className="kicker">Step 05 — manifest</div>
-      <h1>Done. <span style={{color:'var(--accent)'}}>{data.manifest.length}</span> viz{data.manifest.length===1?"":"s"} ready to embed.</h1>
+      <h1>Done. <span style={{color:'var(--accent)'}}>{data.manifest.length}</span> viz{data.manifest.length===1?"":"s"} pushed to GitHub.</h1>
       <p className="lead" style={{marginTop:8}}>
-        Each viz has been compiled to a static bundle. Click <strong>Open Viz</strong> to view it in a new tab.
-        (On local dev, you can also start the live dev server for hot-reload.)
+        Each viz has its own standalone repo. Clone, deploy, and embed at your leisure.
       </p>
 
       <div style={{marginTop:36, display:'flex', flexDirection:'column', gap:18}}>
         {data.manifest.map((m, i) => {
-          // Find the matching build to get dev server status
+          // Find the matching build to surface its GitHub publish status
           const build = Object.values(job.builds).find(b =>
             b.project_dir === m.project_dir
           );
-          const tid = build ? build.topic_id : null;
-          const dsStatus = build ? build.dev_server_status : "not_started";
-          const dsUrl    = build ? build.dev_server_url : "";
-          const dsErr    = build ? build.dev_server_error : "";
-          const isBusy   = busyTid === tid;
 
           return (
             <div key={i} className={"panel " + (m.status === "ok" ? "accent" : "")}>
@@ -838,41 +813,20 @@ function Done({ jobId, onError, onRestart }) {
                 </div>
               )}
 
-              {/* ── Preview ── */}
+              {/* ── GitHub publish status ── */}
               <div style={{marginTop:18}}>
-                <div className="kicker">Preview</div>
-
-                {/* GitHub repo — primary (deploy this elsewhere) */}
-                {build && build.github_status && build.github_status !== "not_started" && (
+                <div className="kicker">Repo</div>
+                {build && build.github_status && build.github_status !== "not_started" ? (
                   <GithubRepoStatus
                     status={build.github_status}
                     repoUrl={build.github_repo_url}
                     repoName={build.github_repo_name}
                     error={build.github_error || ""}
                   />
-                )}
-
-                {/* Static local URL — secondary */}
-                {m.static_url && (
-                  <div style={{display:"flex", gap:12, alignItems:"center", flexWrap:"wrap",
-                    marginTop: build && build.github_status === "published" ? 12 : 8}}>
-                    <span className="tiny">Local build:</span>
-                    <a href={m.static_url} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
-                      <button>Open local ↗</button>
-                    </a>
+                ) : (
+                  <div className="tiny" style={{marginTop:6, opacity:0.7}}>
+                    Build completed, but no GitHub publish status yet.
                   </div>
-                )}
-
-                {/* Dev server — fallback (local dev only) */}
-                {(!build || build.github_status !== "published") && !m.static_url && (
-                  <DevServerControls
-                    status={dsStatus}
-                    url={dsUrl}
-                    error={dsErr}
-                    busy={isBusy}
-                    onStart={() => tid && startServer(tid)}
-                    onStop={() => tid && stopServer(tid)}
-                  />
                 )}
               </div>
 
@@ -909,41 +863,6 @@ function Done({ jobId, onError, onRestart }) {
         <pre className="manifest-block">{json}</pre>
       </div>
     </div>
-  );
-}
-
-function DevServerControls({ status, url, error, busy, onStart, onStop }) {
-  if (status === "running" && url) {
-    return (
-      <div style={{display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginTop:8}}>
-        <a href={url} target="_blank" rel="noopener noreferrer" style={{textDecoration:'none'}}>
-          <button className="primary">Open Live Preview ↗</button>
-        </a>
-        <code style={{padding:'4px 10px', background:'var(--bg-0)', border:'1px solid var(--line)', fontSize:'0.8rem'}}>{url}</code>
-        <button className="ghost" onClick={onStop} disabled={busy}>
-          {busy ? <><span className="spinner"/>…</> : "Stop server"}
-        </button>
-      </div>
-    );
-  }
-  if (status === "starting") {
-    return <div className="tiny" style={{marginTop:8}}><span className="spinner"/> Booting dev server (npm install + vite)…</div>;
-  }
-  if (status === "failed") {
-    return (
-      <div style={{marginTop:8}}>
-        <div className="error" style={{margin:0}}>Dev server failed{error ? `: ${error.slice(0,200)}` : ""}</div>
-        <button className="ghost" onClick={onStart} disabled={busy} style={{marginTop:8}}>
-          {busy ? <><span className="spinner"/>retrying…</> : "↻ Retry"}
-        </button>
-      </div>
-    );
-  }
-  // not_started or stopped
-  return (
-    <button className="primary" onClick={onStart} disabled={busy} style={{marginTop:8}}>
-      {busy ? <><span className="spinner"/> starting…</> : "▶ Start dev server"}
-    </button>
   );
 }
 

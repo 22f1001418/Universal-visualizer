@@ -143,7 +143,11 @@ def _create_repo(owner: Owner, repo: str, description: str, private: bool, on_lo
         json={
             "name": repo,
             "private": private,
-            "auto_init": False,           # we push our own initial commit
+            # auto_init MUST be True: GitHub's Git Data API rejects blob creation
+            # on an empty repo with HTTP 409 "Git Repository is empty". We let
+            # GitHub create a placeholder README + initial commit, then force-
+            # update refs/heads/main to point at our orphan commit below.
+            "auto_init": True,
             "description": description[:350],
             "has_issues": True,
             "has_wiki": False,
@@ -210,7 +214,12 @@ def _push_initial_commit(
     commit_message: str,
     on_log: LogFn,
 ) -> str:
-    """Blobs → tree → commit (no parent) → refs/heads/main. Returns commit SHA."""
+    """Blobs → tree → orphan commit → force-update refs/heads/main. Returns commit SHA.
+
+    The repo was created with auto_init=True so refs/heads/main already exists
+    (pointing at GitHub's auto-generated README commit). We force-update it to
+    our orphan commit so the published history contains only our viz files.
+    """
     tree_entries: list[dict] = []
     for i, path in enumerate(files, 1):
         size = path.stat().st_size
@@ -250,14 +259,26 @@ def _push_initial_commit(
         raise _err(r, "create commit")
     commit_sha = r.json()["sha"]
 
-    r = requests.post(
-        f"{GITHUB_API}/repos/{owner.name}/{repo}/git/refs",
+    # Force-update existing main (created by auto_init) to our orphan commit.
+    # Falls back to creating the ref if PATCH unexpectedly 404s (e.g. an org
+    # configured to use `master` instead of `main` as the default branch).
+    r = requests.patch(
+        f"{GITHUB_API}/repos/{owner.name}/{repo}/git/refs/heads/main",
         headers=_h(),
-        json={"ref": "refs/heads/main", "sha": commit_sha},
+        json={"sha": commit_sha, "force": True},
         timeout=30,
     )
-    if r.status_code not in (200, 201):
-        raise _err(r, "create refs/heads/main")
+    if r.status_code == 404:
+        r = requests.post(
+            f"{GITHUB_API}/repos/{owner.name}/{repo}/git/refs",
+            headers=_h(),
+            json={"ref": "refs/heads/main", "sha": commit_sha},
+            timeout=30,
+        )
+        if r.status_code not in (200, 201):
+            raise _err(r, "create refs/heads/main")
+    elif r.status_code not in (200, 201):
+        raise _err(r, "force-update refs/heads/main")
 
     _log(on_log, f"[GitHub] committed {len(tree_entries)} files @ {commit_sha[:7]}")
     return commit_sha

@@ -26,7 +26,6 @@ from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 # Load .env BEFORE importing any module that reads env vars
 load_dotenv()
@@ -35,15 +34,6 @@ from agents import (                         # noqa: E402
     assemble_viz_brief,
     topic_extraction_agent,
     viz_suggestion_agent,
-)
-from dev_server import (                     # noqa: E402
-    DevServerInfo,
-    StaticBuildInfo,
-    build_static_viz,
-    list_dev_servers,
-    shutdown_all,
-    start_dev_server,
-    stop_dev_server,
 )
 from llm_client import (                     # noqa: E402
     TEXT_MODEL,
@@ -118,11 +108,6 @@ ALLOWED_TRACKS = [
 
 MAX_FILE_SIZE = 5 * 1024 * 1024
 
-# When True (default), every successful build auto-runs npm install + audit fix
-# + npm run dev so the user gets a clickable preview URL in the UI.
-AUTO_START_DEV_SERVER = os.getenv("AUTO_START_DEV_SERVER", "true").lower() in ("1", "true", "yes")
-BUILD_STATIC = os.getenv("BUILD_STATIC", "true").lower() in ("1", "true", "yes")
-
 # When True (default if GITHUB_TOKEN is set), every successful build pushes the
 # generated viz to its own standalone GitHub repo. One repo per build.
 PUBLISH_TO_GITHUB = os.getenv("PUBLISH_TO_GITHUB", "true").lower() in ("1", "true", "yes")
@@ -150,11 +135,6 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=False,
 )
-
-
-# Serve generated visualization static builds at /viz/<slug>/dist/...
-# Must be registered before the wildcard routes but after middleware.
-app.mount("/viz", StaticFiles(directory=str(VIZ_OUTPUT_DIR), html=False), name="viz_static")
 
 
 # ─────────────────────────────────────────────
@@ -497,20 +477,6 @@ def _run_build_task(job_id: str, topic_id: str) -> None:
     task.error = result.error or ""
     task.phase = "completed" if result.success else "failed"
 
-    # ── Static build — runs npm run build to produce dist/ for production serving ──
-    if result.success and result.project_dir and BUILD_STATIC:
-        status("STATIC BUILD", f"job_id={job_id}  topic_id={topic_id}  project={result.project_dir}")
-        try:
-            static_info: StaticBuildInfo = build_static_viz(result.project_dir)
-            if static_info.status == "ok":
-                slug = Path(result.project_dir).name
-                task.static_url = f"/viz/{slug}/dist/index.html"
-                logger.info("[Build %s] Static viz ready: %s", topic_id, task.static_url)
-            else:
-                logger.warning("[Build %s] Static build failed: %s", topic_id, static_info.error)
-        except Exception as e:                # noqa: BLE001
-            logger.exception("[Build %s] static build crashed: %s", topic_id, e)
-
     # ── Publish the viz to its own standalone GitHub repo ──
     if result.success and result.project_dir and PUBLISH_TO_GITHUB:
         if not os.getenv("GITHUB_TOKEN", "").strip():
@@ -543,25 +509,6 @@ def _run_build_task(job_id: str, topic_id: str) -> None:
                 task.github_error = str(exc)[:500]
                 on_log(f"[GitHub] FAILED — {exc}")
 
-    # ── Auto-launch the dev server so the user gets a clickable preview URL ──
-    if result.success and result.project_dir and AUTO_START_DEV_SERVER:
-        status("DEV SERVER", f"job_id={job_id}  topic_id={topic_id}  project={result.project_dir}")
-        task.dev_server_status = "starting"
-        try:
-            info: DevServerInfo = start_dev_server(result.project_dir)
-            task.dev_server_status = info.status
-            task.dev_server_url = info.url
-            task.dev_server_port = info.port
-            task.dev_server_error = info.error
-            if info.status == "running":
-                logger.info("[Build %s] Live preview ready: %s", topic_id, info.url)
-            else:
-                logger.warning("[Build %s] Dev server failed: %s", topic_id, info.error)
-        except Exception as e:                # noqa: BLE001
-            logger.exception("[Build %s] dev server crashed: %s", topic_id, e)
-            task.dev_server_status = "failed"
-            task.dev_server_error = str(e)
-
     # Update overall job status only when ALL builds in the job are done
     all_builds_finished = all(
         b.phase in ("completed", "failed") for b in job.builds.values()
@@ -581,12 +528,6 @@ def _run_build_task(job_id: str, topic_id: str) -> None:
         "BUILD DONE" if result.success else "BUILD FAILED",
         f"job_id={job_id}  topic_id={topic_id}  phase={task.phase}",
     )
-
-
-@app.on_event("shutdown")
-def _on_shutdown() -> None:
-    n = shutdown_all()
-    status("SERVER SHUTDOWN", f"stopped {n} dev server(s)")
 
 
 def _build_manifest(job: JobState) -> list[EmbedManifestEntry]:
@@ -614,81 +555,10 @@ def _build_manifest(job: JobState) -> list[EmbedManifestEntry]:
             viz_brief=task.final_viz_brief,
             project_dir=task.project_dir,
             screenshot_path=task.screenshot_path,
-            dev_server_url=task.dev_server_url if task.dev_server_status == "running" else "",
-            static_url=task.static_url,
             github_repo_url=task.github_repo_url if task.github_status == "published" else "",
             status="ok" if task.phase == "completed" else "failed",
         ))
     return entries
-
-
-# ─────────────────────────────────────────────
-# 5b. Dev server controls — start / stop / list
-# ─────────────────────────────────────────────
-
-@app.post("/jobs/{job_id}/topics/{topic_id}/dev-server/start")
-def start_topic_dev_server(job_id: str, topic_id: str) -> dict:
-    """Manually start (or restart) the dev server for a built topic."""
-    try:
-        job = job_store.get_or_404(job_id)
-    except KeyError:
-        raise HTTPException(404, f"Job {job_id} not found")
-    task = job.builds.get(topic_id)
-    if task is None or not task.project_dir:
-        raise HTTPException(400, f"No completed build found for topic {topic_id}")
-
-    info = start_dev_server(task.project_dir)
-    task.dev_server_status = info.status
-    task.dev_server_url = info.url
-    task.dev_server_port = info.port
-    task.dev_server_error = info.error
-    job_store.update(job_id, builds=job.builds)
-    return {
-        "status": info.status,
-        "url": info.url,
-        "port": info.port,
-        "error": info.error,
-    }
-
-
-@app.post("/jobs/{job_id}/topics/{topic_id}/dev-server/stop")
-def stop_topic_dev_server(job_id: str, topic_id: str) -> dict:
-    try:
-        job = job_store.get_or_404(job_id)
-    except KeyError:
-        raise HTTPException(404, f"Job {job_id} not found")
-    task = job.builds.get(topic_id)
-    if task is None or not task.project_dir:
-        raise HTTPException(400, f"No build found for topic {topic_id}")
-
-    stopped = stop_dev_server(task.project_dir)
-    task.dev_server_status = "stopped"
-    task.dev_server_url = ""
-    job_store.update(job_id, builds=job.builds)
-    return {"stopped": stopped}
-
-
-@app.get("/dev-servers")
-def list_running_dev_servers() -> dict:
-    """List every dev server the orchestrator currently knows about."""
-    servers = list_dev_servers()
-    return {
-        "servers": [
-            {
-                "project_dir": s.project_dir,
-                "port": s.port,
-                "url": s.url,
-                "status": s.status,
-                "started_at": s.started_at,
-                "error": s.error,
-            }
-            for s in servers
-        ]
-    }
-
-
-# Module/class listing endpoints removed — the new per-viz-repo strategy
-# creates a brand-new repo per build, so folder pickers are obsolete.
 
 
 # ─────────────────────────────────────────────
