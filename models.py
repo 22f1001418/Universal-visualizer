@@ -113,13 +113,13 @@ class BuildTask(BaseModel):
     dev_server_error: str = ""
     static_url: str = ""           # /viz/<slug>/dist/index.html when static build succeeded
 
-    # GitHub Pages publishing
-    github_repo: str = ""
-    github_module: str = ""
-    github_class: str = ""
-    github_pages_url: str = ""
-    github_pages_status: str = "not_started"   # not_started | pending | live | failed
-    github_pages_error: str = ""
+    # GitHub publish — each successful build gets its own standalone repo
+    github_status: str = "not_started"       # not_started | publishing | published | skipped | failed
+    github_repo_url: str = ""                # https://github.com/<owner>/<repo>
+    github_clone_url: str = ""               # https://github.com/<owner>/<repo>.git
+    github_repo_name: str = ""
+    github_commit_sha: str = ""
+    github_error: str = ""
 
 
 class BuildRequest(BaseModel):
@@ -134,8 +134,10 @@ class BuildRequest(BaseModel):
         max_length=2000,
         description="Optional free-text customisation appended to the chosen suggestion.",
     )
-    github_module: str = Field("", max_length=200, description="Module folder name on GitHub.")
-    github_class: str = Field("", max_length=200, description="Class folder name on GitHub.")
+    # Legacy fields from the old Pages flow — kept for backwards-compat with older
+    # frontends that still send them. The new per-viz-repo flow ignores both.
+    github_module: str = Field("", max_length=200, description="(deprecated) ignored.")
+    github_class: str = Field("", max_length=200, description="(deprecated) ignored.")
 
 
 # ──────────────────────────────────────────────
@@ -164,6 +166,7 @@ class EmbedManifestEntry(BaseModel):
     screenshot_path: str = ""
     dev_server_url: str = ""        # populated when the dev server is running
     static_url: str = ""            # populated after npm run build succeeds
+    github_repo_url: str = ""       # standalone repo for this viz (if published)
     status: Literal["ok", "failed", "skipped"] = "ok"
 
 

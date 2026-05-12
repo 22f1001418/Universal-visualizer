@@ -70,14 +70,7 @@ from orchestrator import (                   # noqa: E402
     run_viz_build,
 )
 from store import job_store                   # noqa: E402
-from github_publisher import (                # noqa: E402
-    list_modules as gh_list_modules,
-    list_classes as gh_list_classes,
-    track_to_repo,
-    publish_dist as gh_publish_dist,
-    wait_for_pages_live,
-    sanitize_path_component,
-)
+from github_publisher import publish_viz_repo  # noqa: E402
 
 
 # ─────────────────────────────────────────────
@@ -129,6 +122,12 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 # + npm run dev so the user gets a clickable preview URL in the UI.
 AUTO_START_DEV_SERVER = os.getenv("AUTO_START_DEV_SERVER", "true").lower() in ("1", "true", "yes")
 BUILD_STATIC = os.getenv("BUILD_STATIC", "true").lower() in ("1", "true", "yes")
+
+# When True (default if GITHUB_TOKEN is set), every successful build pushes the
+# generated viz to its own standalone GitHub repo. One repo per build.
+PUBLISH_TO_GITHUB = os.getenv("PUBLISH_TO_GITHUB", "true").lower() in ("1", "true", "yes")
+GITHUB_INCLUDE_DIST = os.getenv("GITHUB_INCLUDE_DIST", "true").lower() in ("1", "true", "yes")
+GITHUB_REPOS_PRIVATE = os.getenv("GITHUB_REPOS_PRIVATE", "false").lower() in ("1", "true", "yes")
 
 
 # ─────────────────────────────────────────────
@@ -414,13 +413,8 @@ async def build_topic_viz(
     # full_brief  packs in the suggestion + custom notes for the LLM prompt.
     short_topic, full_brief = assemble_viz_brief(topic, suggestion, request.custom_notes)
 
-    # Derive GitHub repo from job track; empty string = skip GitHub publishing
-    github_repo = ""
-    if os.getenv("GITHUB_TOKEN") and request.github_module.strip() and request.github_class.strip():
-        try:
-            github_repo = track_to_repo(job.track)
-        except ValueError:
-            logger.warning("[Build] Unknown track for GitHub repo: %s", job.track)
+    # GitHub publishing is now per-viz-repo and decided at publish time, not here.
+    # Old request.github_module / github_class fields are ignored for backwards-compat.
 
     task = BuildTask(
         id=f"build_{uuid.uuid4().hex[:8]}",
@@ -430,9 +424,6 @@ async def build_topic_viz(
         short_topic=short_topic,        # what subprocess gets via --topic
         final_viz_brief=full_brief,     # full brief stored for traceability / UI
         phase="queued",
-        github_repo=github_repo,
-        github_module=sanitize_path_component(request.github_module),
-        github_class=sanitize_path_component(request.github_class),
     )
     job.builds[topic_id] = task
     job_store.update(job_id, builds=job.builds, status=JobStatus.BUILDING)
@@ -457,22 +448,6 @@ async def build_topic_viz(
         "short_topic": short_topic,
         "final_viz_brief": full_brief,
     }
-
-
-def _poll_github_pages(job_id: str, topic_id: str, url: str) -> None:
-    """Daemon thread: poll until GitHub Pages is live, then update task status."""
-    live = wait_for_pages_live(url)
-    job = job_store.get(job_id)
-    if job is None:
-        return
-    task = job.builds.get(topic_id)
-    if task is None:
-        return
-    task.github_pages_status = "live" if live else "failed"
-    if not live:
-        task.github_pages_error = f"GitHub Pages did not go live within 5 minutes: {url}"
-    job_store.update(job_id, builds=job.builds)
-    logger.info("[Pages] %s → %s", url, task.github_pages_status)
 
 
 def _run_build_task(job_id: str, topic_id: str) -> None:
@@ -536,25 +511,37 @@ def _run_build_task(job_id: str, topic_id: str) -> None:
         except Exception as e:                # noqa: BLE001
             logger.exception("[Build %s] static build crashed: %s", topic_id, e)
 
-    # ── Publish dist/ to GitHub Pages ──
-    if result.success and result.project_dir and task.github_repo and task.github_module and task.github_class:
-        status("GITHUB PUBLISH", f"job_id={job_id}  repo={task.github_repo}  {task.github_module}/{task.github_class}")
-        dist_path = str(Path(result.project_dir) / "dist")
-        task.github_pages_status = "pending"
-        try:
-            gh_url = gh_publish_dist(task.github_repo, task.github_module, task.github_class, dist_path)
-            task.github_pages_url = gh_url
-            logger.info("[Build %s] GitHub push done → %s", topic_id, gh_url)
-            import threading as _threading
-            _threading.Thread(
-                target=_poll_github_pages,
-                args=(job_id, topic_id, gh_url),
-                daemon=True,
-            ).start()
-        except Exception as exc:                # noqa: BLE001
-            logger.exception("[Build %s] GitHub publish failed: %s", topic_id, exc)
-            task.github_pages_status = "failed"
-            task.github_pages_error = str(exc)[:300]
+    # ── Publish the viz to its own standalone GitHub repo ──
+    if result.success and result.project_dir and PUBLISH_TO_GITHUB:
+        if not os.getenv("GITHUB_TOKEN", "").strip():
+            task.github_status = "skipped"
+            task.github_error = "GITHUB_TOKEN not set"
+            on_log("[GitHub] skipped — GITHUB_TOKEN not set")
+        else:
+            status("GITHUB PUBLISH", f"job_id={job_id}  topic_id={topic_id}  project={result.project_dir}")
+            task.github_status = "publishing"
+            try:
+                slug = task.short_topic or Path(result.project_dir).name
+                pub = publish_viz_repo(
+                    project_dir=result.project_dir,
+                    slug=slug,
+                    description=(task.final_viz_brief or slug)[:300],
+                    include_dist=GITHUB_INCLUDE_DIST,
+                    private=GITHUB_REPOS_PRIVATE,
+                    on_log=on_log,
+                )
+                task.github_status = "published"
+                task.github_repo_url = pub.html_url
+                task.github_clone_url = pub.clone_url
+                task.github_repo_name = pub.repo_name
+                task.github_commit_sha = pub.commit_sha
+                logger.info("[Build %s] Published to %s (%d files)",
+                            topic_id, pub.html_url, pub.file_count)
+            except Exception as exc:                # noqa: BLE001 — publish must never crash the build
+                logger.exception("[Build %s] GitHub publish failed: %s", topic_id, exc)
+                task.github_status = "failed"
+                task.github_error = str(exc)[:500]
+                on_log(f"[GitHub] FAILED — {exc}")
 
     # ── Auto-launch the dev server so the user gets a clickable preview URL ──
     if result.success and result.project_dir and AUTO_START_DEV_SERVER:
@@ -629,6 +616,7 @@ def _build_manifest(job: JobState) -> list[EmbedManifestEntry]:
             screenshot_path=task.screenshot_path,
             dev_server_url=task.dev_server_url if task.dev_server_status == "running" else "",
             static_url=task.static_url,
+            github_repo_url=task.github_repo_url if task.github_status == "published" else "",
             status="ok" if task.phase == "completed" else "failed",
         ))
     return entries
@@ -699,32 +687,8 @@ def list_running_dev_servers() -> dict:
     }
 
 
-# ─────────────────────────────────────────────
-# 5a. GitHub repo / module / class listing
-# ─────────────────────────────────────────────
-
-@app.get("/github/repos/{repo}/modules")
-def github_list_modules(repo: str) -> dict:
-    """List existing module folders in a track repo."""
-    if not os.getenv("GITHUB_TOKEN"):
-        return {"repo": repo, "modules": [], "error": "GITHUB_TOKEN not configured"}
-    try:
-        return {"repo": repo, "modules": gh_list_modules(repo)}
-    except Exception as e:
-        logger.warning("[GitHub] list_modules error: %s", e)
-        return {"repo": repo, "modules": [], "error": str(e)[:200]}
-
-
-@app.get("/github/repos/{repo}/modules/{module}/classes")
-def github_list_classes(repo: str, module: str) -> dict:
-    """List existing class folders inside a module."""
-    if not os.getenv("GITHUB_TOKEN"):
-        return {"repo": repo, "module": module, "classes": [], "error": "GITHUB_TOKEN not configured"}
-    try:
-        return {"repo": repo, "module": module, "classes": gh_list_classes(repo, module)}
-    except Exception as e:
-        logger.warning("[GitHub] list_classes error: %s", e)
-        return {"repo": repo, "module": module, "classes": [], "error": str(e)[:200]}
+# Module/class listing endpoints removed — the new per-viz-repo strategy
+# creates a brand-new repo per build, so folder pickers are obsolete.
 
 
 # ─────────────────────────────────────────────

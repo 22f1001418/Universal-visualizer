@@ -1,15 +1,20 @@
-"""GitHub publisher — pushes built viz dist/ to the scaler-content org.
+"""GitHub publisher — push each viz as its own standalone repo.
 
-Repo structure on GitHub:
-  <track-repo>/           e.g. AIML, Academy-DSA, DevOps
-    <module>/             e.g. neural-networks, sorting-algorithms
-      <class>/            e.g. class-01, week-3
-        index.html
-        assets/
-          index-abc123.js
-          index-abc123.css
+One build → one new repo containing the full Vite source (plus optional dist/).
+The caller deploys the repo separately (Vercel, Netlify, Pages, etc.); this
+module does NOT enable Pages or wait for any deployment to go live.
 
-GitHub Pages URL: https://scaler-content.github.io/<repo>/<module>/<class>/
+Design notes for past-bugs:
+  • GITHUB_TOKEN is read lazily inside `_h()`, never at import time. .env loaded
+    after import still works.
+  • Default owner is the authenticated user via `/user/repos`. Override with
+    GITHUB_OWNER (user OR org); we auto-detect which endpoint to use.
+  • `_repo_exists()` distinguishes 404 from auth failures and raises on
+    401/403 so silent misconfiguration can't masquerade as "doesn't exist".
+  • Upload is a single atomic Git Data API commit (blobs → tree → commit →
+    ref), not N sequential Contents-API PUTs. Partial-state failures gone.
+  • Every step calls the optional `on_log` so the UI sees progress.
+  • No `wait_for_pages_live` blocking — Pages is no longer in scope.
 """
 from __future__ import annotations
 
@@ -17,36 +22,42 @@ import base64
 import logging
 import os
 import re
-import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Iterable, Optional
 
 import requests
 
 logger = logging.getLogger("hackmd-orch.github")
 
-GITHUB_ORG    = "scaler-content"
-GITHUB_API    = "https://api.github.com"
-GITHUB_PAGES_DOMAIN = f"https://{GITHUB_ORG}.github.io"
+GITHUB_API = "https://api.github.com"
 
-TRACK_TO_REPO: dict[str, str] = {
-    "Academy DSA":      "Academy-DSA",
-    "Academy Fullstack": "Academy-Fullstack",
-    "Academy Backend":  "Academy-Backend",
-    "DSML DA":          "DSML-DA",
-    "DSML DS":          "DSML-DS",
-    "AIML":             "AIML",
-    "DevOps":           "DevOps",
-}
+# Files/dirs we never want in the published repo
+SKIP_DIRS = {"node_modules", ".git", "dist-ssr", ".vite", "__pycache__", ".next", ".cache"}
+SKIP_FILES = {".DS_Store", ".env", ".env.local", ".env.production", "npm-debug.log", "yarn-error.log"}
+SKIP_SUFFIXES = (".log", ".pyc")
 
-PAGES_POLL_INTERVAL = 10   # seconds between live-checks
-PAGES_POLL_TIMEOUT  = 300  # give up after 5 minutes
+# Per-file size guard. GitHub blob API technically allows up to 100MB but
+# anything over a few MB in a viz source tree is almost certainly an accident.
+MAX_FILE_BYTES = 25 * 1024 * 1024  # 25 MB
+
+LogFn = Optional[Callable[[str], None]]
 
 
-# ── Auth header ───────────────────────────────────────────────────────────────
+# ── small helpers ─────────────────────────────────────────────────────────────
+
+def _log(on_log: LogFn, msg: str) -> None:
+    logger.info(msg)
+    if on_log:
+        try:
+            on_log(msg)
+        except Exception:  # noqa: BLE001 — never let a log callback break a publish
+            pass
+
 
 def _h() -> dict[str, str]:
-    token = os.getenv("GITHUB_TOKEN", "")
+    """Build auth headers. Reads GITHUB_TOKEN at call time, not import time."""
+    token = os.getenv("GITHUB_TOKEN", "").strip()
     if not token:
         raise RuntimeError("GITHUB_TOKEN env var not set — cannot publish to GitHub")
     return {
@@ -56,212 +67,269 @@ def _h() -> dict[str, str]:
     }
 
 
-# ── Track → repo name ─────────────────────────────────────────────────────────
-
-def track_to_repo(track: str) -> str:
-    repo = TRACK_TO_REPO.get(track)
-    if not repo:
-        raise ValueError(f"Unknown track '{track}'. Known: {list(TRACK_TO_REPO)}")
-    return repo
+def _err(resp: requests.Response, action: str) -> RuntimeError:
+    body = resp.text[:400] if resp.text else "<empty>"
+    return RuntimeError(f"GitHub {action} failed: HTTP {resp.status_code} {body}")
 
 
-# ── Path sanitization ─────────────────────────────────────────────────────────
+# ── repo naming ───────────────────────────────────────────────────────────────
 
-def sanitize_path_component(s: str) -> str:
-    """Convert user input to a safe GitHub path component (folder name)."""
-    s = s.strip()
-    s = re.sub(r"[^a-zA-Z0-9._-]", "-", s)   # replace invalid chars with -
-    s = re.sub(r"-+", "-", s)                  # collapse repeated hyphens
-    s = s.strip("-")                            # no leading/trailing hyphens
-    return s[:100]
-
-
-# ── Repo lifecycle ────────────────────────────────────────────────────────────
-
-def _repo_exists(repo: str) -> bool:
-    r = requests.get(
-        f"{GITHUB_API}/repos/{GITHUB_ORG}/{repo}",
-        headers=_h(), timeout=10,
-    )
-    return r.status_code == 200
+def sanitize_repo_name(s: str) -> str:
+    """GitHub repo names: alphanumeric, hyphens, underscores, dots."""
+    s = s.strip().lower()
+    s = re.sub(r"[^a-z0-9._-]", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-.")
+    if not s:
+        s = "viz"
+    return s[:90]  # leave headroom for a `-N` collision suffix
 
 
-def _create_repo(repo: str) -> None:
+# ── owner resolution ──────────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class Owner:
+    name: str
+    is_org: bool   # True → POST /orgs/{name}/repos, False → POST /user/repos
+
+
+def _resolve_owner(on_log: LogFn) -> Owner:
+    """Pick the GitHub owner for new repos.
+
+    Precedence:
+      1. GITHUB_OWNER env var (auto-detect user vs org via /users/{name})
+      2. Authenticated user via /user
+    """
+    override = os.getenv("GITHUB_OWNER", "").strip()
+    if override:
+        r = requests.get(f"{GITHUB_API}/users/{override}", headers=_h(), timeout=10)
+        if r.status_code != 200:
+            raise _err(r, f"lookup owner {override!r}")
+        is_org = r.json().get("type", "User") == "Organization"
+        _log(on_log, f"[GitHub] owner={override} ({'org' if is_org else 'user'}) from GITHUB_OWNER")
+        return Owner(name=override, is_org=is_org)
+
+    r = requests.get(f"{GITHUB_API}/user", headers=_h(), timeout=10)
+    if r.status_code == 401:
+        raise RuntimeError("GitHub auth failed (401) — check GITHUB_TOKEN scope (needs `repo`)")
+    if r.status_code != 200:
+        raise _err(r, "lookup authenticated user")
+    login = r.json().get("login")
+    if not login:
+        raise RuntimeError("GitHub /user returned no login field")
+    _log(on_log, f"[GitHub] owner={login} (authenticated user)")
+    return Owner(name=login, is_org=False)
+
+
+# ── repo existence + creation ─────────────────────────────────────────────────
+
+def _repo_exists(owner: Owner, repo: str) -> bool:
+    r = requests.get(f"{GITHUB_API}/repos/{owner.name}/{repo}", headers=_h(), timeout=10)
+    if r.status_code == 200:
+        return True
+    if r.status_code == 404:
+        return False
+    # 401/403/5xx — never silently treat as "doesn't exist"
+    raise _err(r, f"check repo {owner.name}/{repo}")
+
+
+def _create_repo(owner: Owner, repo: str, description: str, private: bool, on_log: LogFn) -> dict:
+    if owner.is_org:
+        url = f"{GITHUB_API}/orgs/{owner.name}/repos"
+    else:
+        url = f"{GITHUB_API}/user/repos"   # authenticated-user endpoint
     r = requests.post(
-        f"{GITHUB_API}/user/repos",
+        url,
         headers=_h(),
         json={
             "name": repo,
-            "private": False,
-            "auto_init": True,          # initial README commit so Pages can be enabled
-            "description": f"Scaler interactive visualizations — {repo}",
+            "private": private,
+            "auto_init": False,           # we push our own initial commit
+            "description": description[:350],
+            "has_issues": True,
+            "has_wiki": False,
         },
         timeout=20,
     )
     if r.status_code not in (200, 201):
-        raise RuntimeError(f"Failed to create repo {repo}: {r.status_code} {r.text[:300]}")
-    logger.info("[GitHub] Created repo %s/%s", GITHUB_ORG, repo)
+        raise _err(r, f"create repo {owner.name}/{repo}")
+    _log(on_log, f"[GitHub] created repo {owner.name}/{repo}")
+    return r.json()
 
 
-def _pages_enabled(repo: str) -> bool:
-    r = requests.get(
-        f"{GITHUB_API}/repos/{GITHUB_ORG}/{repo}/pages",
-        headers=_h(), timeout=10,
-    )
-    return r.status_code == 200
+def _pick_unique_repo_name(owner: Owner, base: str, on_log: LogFn) -> str:
+    """Append `-2`, `-3`, … if the name is taken. Bounded to avoid infinite loops."""
+    name = base
+    for i in range(2, 20):
+        if not _repo_exists(owner, name):
+            return name
+        name = f"{base}-{i}"
+        _log(on_log, f"[GitHub] {base} taken, trying {name}")
+    raise RuntimeError(f"Could not find an available repo name starting from {base!r}")
 
 
-def _enable_pages(repo: str) -> None:
+# ── file collection ───────────────────────────────────────────────────────────
+
+def _iter_publishable_files(root: Path, include_dist: bool) -> Iterable[Path]:
+    """Yield files under `root` that should be uploaded, applying skip rules."""
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel_parts = path.relative_to(root).parts
+        # Directory-level skips (any segment)
+        if any(part in SKIP_DIRS for part in rel_parts[:-1]):
+            continue
+        # `dist/` is opt-in — most consumers will rebuild from source
+        if not include_dist and rel_parts and rel_parts[0] == "dist":
+            continue
+        if path.name in SKIP_FILES:
+            continue
+        if path.name.endswith(SKIP_SUFFIXES):
+            continue
+        yield path
+
+
+# ── atomic Git Data API push ──────────────────────────────────────────────────
+
+def _create_blob(owner: Owner, repo: str, data: bytes) -> str:
     r = requests.post(
-        f"{GITHUB_API}/repos/{GITHUB_ORG}/{repo}/pages",
+        f"{GITHUB_API}/repos/{owner.name}/{repo}/git/blobs",
         headers=_h(),
-        json={"source": {"branch": "main", "path": "/"}},
-        timeout=15,
+        json={"content": base64.b64encode(data).decode("ascii"), "encoding": "base64"},
+        timeout=60,
     )
-    if r.status_code in (200, 201):
-        logger.info("[GitHub] Pages enabled for %s/%s", GITHUB_ORG, repo)
-    elif r.status_code == 409:
-        logger.info("[GitHub] Pages already enabled for %s/%s", GITHUB_ORG, repo)
-    else:
-        logger.warning("[GitHub] Pages enable returned %d for %s: %s",
-                       r.status_code, repo, r.text[:200])
+    if r.status_code not in (200, 201):
+        raise _err(r, "create blob")
+    return r.json()["sha"]
 
 
-def ensure_repo_exists(repo: str) -> None:
-    """Create the repo + enable Pages if it doesn't exist yet. Idempotent."""
-    if _repo_exists(repo):
-        if not _pages_enabled(repo):
-            _enable_pages(repo)
-        return
-    _create_repo(repo)
-    time.sleep(3)   # let GitHub settle before enabling Pages
-    _enable_pages(repo)
+def _push_initial_commit(
+    owner: Owner,
+    repo: str,
+    root: Path,
+    files: list[Path],
+    commit_message: str,
+    on_log: LogFn,
+) -> str:
+    """Blobs → tree → commit (no parent) → refs/heads/main. Returns commit SHA."""
+    tree_entries: list[dict] = []
+    for i, path in enumerate(files, 1):
+        size = path.stat().st_size
+        if size > MAX_FILE_BYTES:
+            _log(on_log, f"[GitHub] skip {path.relative_to(root)} ({size} bytes > limit)")
+            continue
+        sha = _create_blob(owner, repo, path.read_bytes())
+        tree_entries.append({
+            "path": path.relative_to(root).as_posix(),
+            "mode": "100644",
+            "type": "blob",
+            "sha": sha,
+        })
+        if i % 10 == 0 or i == len(files):
+            _log(on_log, f"[GitHub] uploaded {i}/{len(files)} blobs")
 
+    if not tree_entries:
+        raise RuntimeError("Nothing to publish: no files passed the skip rules")
 
-# ── Directory listing ─────────────────────────────────────────────────────────
-
-def list_modules(repo: str) -> list[str]:
-    """Top-level folders in the repo — each represents a module."""
-    r = requests.get(
-        f"{GITHUB_API}/repos/{GITHUB_ORG}/{repo}/contents/",
-        headers=_h(), timeout=10,
-    )
-    if r.status_code == 404:
-        return []
-    if r.status_code != 200:
-        logger.warning("[GitHub] list_modules %s: %d", repo, r.status_code)
-        return []
-    return sorted(item["name"] for item in r.json() if item["type"] == "dir")
-
-
-def list_classes(repo: str, module: str) -> list[str]:
-    """Folders inside <module>/ — each represents a class."""
-    r = requests.get(
-        f"{GITHUB_API}/repos/{GITHUB_ORG}/{repo}/contents/{module}",
-        headers=_h(), timeout=10,
-    )
-    if r.status_code == 404:
-        return []
-    if r.status_code != 200:
-        logger.warning("[GitHub] list_classes %s/%s: %d", repo, module, r.status_code)
-        return []
-    return sorted(item["name"] for item in r.json() if item["type"] == "dir")
-
-
-# ── File push ─────────────────────────────────────────────────────────────────
-
-def _get_sha(repo: str, path: str) -> Optional[str]:
-    """Return the blob SHA of an existing file, or None if it doesn't exist."""
-    r = requests.get(
-        f"{GITHUB_API}/repos/{GITHUB_ORG}/{repo}/contents/{path}",
-        headers=_h(), timeout=10,
-    )
-    if r.status_code == 200:
-        data = r.json()
-        if isinstance(data, dict):     # file — directories return a list
-            return data.get("sha")
-    return None
-
-
-def _push_file(repo: str, path: str, content: bytes, message: str) -> None:
-    """Create or update a single file in the repo via the Contents API."""
-    sha = _get_sha(repo, path)
-    payload: dict = {
-        "message": message,
-        "content": base64.b64encode(content).decode(),
-        "branch": "main",
-    }
-    if sha:
-        payload["sha"] = sha   # required for updates; omitted for new files
-
-    r = requests.put(
-        f"{GITHUB_API}/repos/{GITHUB_ORG}/{repo}/contents/{path}",
+    r = requests.post(
+        f"{GITHUB_API}/repos/{owner.name}/{repo}/git/trees",
         headers=_h(),
-        json=payload,
+        json={"tree": tree_entries},
+        timeout=60,
+    )
+    if r.status_code not in (200, 201):
+        raise _err(r, "create tree")
+    tree_sha = r.json()["sha"]
+
+    r = requests.post(
+        f"{GITHUB_API}/repos/{owner.name}/{repo}/git/commits",
+        headers=_h(),
+        json={"message": commit_message, "tree": tree_sha, "parents": []},
         timeout=30,
     )
     if r.status_code not in (200, 201):
-        raise RuntimeError(f"Failed to push {path}: {r.status_code} {r.text[:300]}")
-    logger.info("[GitHub] pushed %s/%s", repo, path)
+        raise _err(r, "create commit")
+    commit_sha = r.json()["sha"]
+
+    r = requests.post(
+        f"{GITHUB_API}/repos/{owner.name}/{repo}/git/refs",
+        headers=_h(),
+        json={"ref": "refs/heads/main", "sha": commit_sha},
+        timeout=30,
+    )
+    if r.status_code not in (200, 201):
+        raise _err(r, "create refs/heads/main")
+
+    _log(on_log, f"[GitHub] committed {len(tree_entries)} files @ {commit_sha[:7]}")
+    return commit_sha
 
 
-# ── Publish ───────────────────────────────────────────────────────────────────
+# ── public API ────────────────────────────────────────────────────────────────
 
-def publish_dist(
-    repo: str,
-    module: str,
-    class_name: str,
-    dist_dir: str,
-) -> str:
-    """Push all files from dist_dir → <repo>/<module>/<class_name>/ on GitHub.
+@dataclass(frozen=True)
+class PublishResult:
+    repo_name: str
+    owner: str
+    html_url: str         # https://github.com/owner/repo
+    clone_url: str        # https://github.com/owner/repo.git
+    commit_sha: str
+    file_count: int
 
-    Returns the GitHub Pages URL for the published viz.
+
+def publish_viz_repo(
+    project_dir: str,
+    slug: str,
+    description: str = "",
+    include_dist: bool = True,
+    private: bool = False,
+    on_log: LogFn = None,
+) -> PublishResult:
+    """Push the viz project at `project_dir` to a brand-new GitHub repo.
+
+    Args:
+        project_dir: Local path to the generated Vite project root.
+        slug: Desired repo name (will be sanitized + de-duped on collision).
+        description: Repo description.
+        include_dist: If True, also upload the built `dist/` folder.
+        private: Create the repo as private.
+        on_log: Optional callback for progress lines (streamed to BuildTask.logs).
+
+    Raises:
+        RuntimeError on any GitHub error (auth, permission, API failure).
     """
-    dist = Path(dist_dir).resolve()
-    if not dist.exists() or not (dist / "index.html").exists():
-        raise RuntimeError(f"dist/ missing or no index.html: {dist}")
+    root = Path(project_dir).resolve()
+    if not root.is_dir():
+        raise RuntimeError(f"project_dir does not exist or is not a directory: {root}")
+    if not (root / "package.json").exists():
+        raise RuntimeError(f"project_dir has no package.json — refusing to publish: {root}")
 
-    ensure_repo_exists(repo)
+    owner = _resolve_owner(on_log)
+    base_name = sanitize_repo_name(slug)
+    repo_name = _pick_unique_repo_name(owner, base_name, on_log)
 
-    commit_msg = f"viz: add {module}/{class_name}"
-    for file_path in sorted(dist.rglob("*")):
-        if not file_path.is_file():
-            continue
-        rel = file_path.relative_to(dist)
-        github_path = f"{module}/{class_name}/{rel.as_posix()}"
-        _push_file(repo, github_path, file_path.read_bytes(), commit_msg)
+    _log(on_log, f"[GitHub] creating {owner.name}/{repo_name} (private={private})")
+    _create_repo(owner, repo_name, description or f"Visualization: {slug}", private, on_log)
 
-    url = pages_url(repo, module, class_name)
-    logger.info("[GitHub] published %d files → %s", sum(1 for f in dist.rglob("*") if f.is_file()), url)
-    return url
+    files = list(_iter_publishable_files(root, include_dist=include_dist))
+    _log(on_log, f"[GitHub] pushing {len(files)} files (include_dist={include_dist})")
 
+    commit_sha = _push_initial_commit(
+        owner=owner,
+        repo=repo_name,
+        root=root,
+        files=files,
+        commit_message=f"Initial commit: {slug}",
+        on_log=on_log,
+    )
 
-def pages_url(repo: str, module: str, class_name: str) -> str:
-    return f"{GITHUB_PAGES_DOMAIN}/{repo}/{module}/{class_name}/"
+    html_url = f"https://github.com/{owner.name}/{repo_name}"
+    clone_url = f"{html_url}.git"
+    _log(on_log, f"[GitHub] published → {html_url}")
 
-
-# ── Pages liveness check ──────────────────────────────────────────────────────
-
-def check_pages_live(url: str) -> bool:
-    """Single HTTP check — True if the page responds with 200."""
-    try:
-        r = requests.get(url, timeout=10, allow_redirects=True)
-        return r.status_code == 200
-    except Exception:
-        return False
-
-
-def wait_for_pages_live(
-    url: str,
-    timeout: int = PAGES_POLL_TIMEOUT,
-    interval: int = PAGES_POLL_INTERVAL,
-) -> bool:
-    """Block until the Pages URL returns 200 or timeout expires."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if check_pages_live(url):
-            logger.info("[GitHub] Pages live: %s", url)
-            return True
-        time.sleep(interval)
-    logger.warning("[GitHub] Pages did not go live within %ds: %s", timeout, url)
-    return False
+    return PublishResult(
+        repo_name=repo_name,
+        owner=owner.name,
+        html_url=html_url,
+        clone_url=clone_url,
+        commit_sha=commit_sha,
+        file_count=len(files),
+    )
