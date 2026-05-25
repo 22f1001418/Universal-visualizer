@@ -117,4 +117,3 @@ test-results/
 frontend/node_modules/
 frontend/dist/
 backend/static/
-backend/static_v2/

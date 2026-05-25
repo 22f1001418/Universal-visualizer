@@ -4,7 +4,7 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
-RUN npm run build   # → /app/backend/static_v2 (vite.config.ts outDir: ../backend/static_v2)
+RUN npm run build   # → /app/backend/static (vite.config.ts outDir: ../backend/static)
 
 # ── Stage 2: python deps (separate so deps cache survives code changes) ───────
 FROM python:3.12-slim AS python-deps
@@ -36,8 +36,8 @@ RUN playwright install chromium --with-deps \
 COPY backend/ ./backend/
 COPY main.py agents.py orchestrator.py store.py models.py dev_server.py github_publisher.py fixed_main_v6.py ./
 
-# Copy the built SPA into the location the /v2/ mount expects
-COPY --from=frontend-builder /app/backend/static_v2 ./backend/static_v2/
+# Copy the built SPA into the location the / route expects
+COPY --from=frontend-builder /app/backend/static ./backend/static/
 
 # Pre-create the viz output directory (Railway volume mounts here)
 RUN mkdir -p /app/viz_outputs

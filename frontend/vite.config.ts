@@ -1,12 +1,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Stage 4 cutover state: outDir starts at ../backend/static_v2 (parallel ship).
-// Task 14 flips this to ../backend/static after parity QA.
+// Task 14: outDir flipped from ../backend/static_v2 to ../backend/static (cutover complete).
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: '../backend/static_v2',
+    outDir: '../backend/static',
     emptyOutDir: true,
     sourcemap: false,
     cssCodeSplit: true,
