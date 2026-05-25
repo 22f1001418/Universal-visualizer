@@ -1,3 +1,105 @@
-/* frontend/src/lib/theme.css — placeholder for Task 2 */
-:root { --bg-0: #fafaf7; }
-body { background: var(--bg-0); }
+:root {
+  /* Clean-light theme. Surfaces step from page → panels → inset; ink steps
+     from primary → muted → disabled. Accent is a deeper amber so it still
+     reads as a CTA against the off-white page. */
+  --bg-0: #fafaf7;          /* page background — off-white, slightly warm */
+  --bg-1: #ffffff;          /* panels / cards */
+  --bg-2: #f1ede2;          /* inset surfaces, progress troughs, codeblocks */
+  --line: #e6e3da;          /* hairline borders */
+  --ink-0: #16140f;         /* primary text */
+  --ink-1: #3c3a32;         /* body text */
+  --ink-2: #6b6857;         /* muted / labels */
+  --ink-3: #9b9684;         /* very muted / breadcrumbs */
+  --accent: #c25a25;        /* deep burnt amber — primary CTA + emphasis */
+  --accent-soft: #e7733e;   /* hover state */
+  --good: #2f7d3e;
+  --warn: #a8741f;
+  --bad:  #b3361f;
+  --grain-opacity: 0;       /* grain reads as dirt on light bg — disabled */
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--bg-0);
+  color: var(--ink-1);
+  font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  min-height: 100vh;
+}
+
+/* Subtle warm wash for atmosphere — soft amber halos in the corners.
+   Opacity is tuned for the light palette: any higher reads as a stain. */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(194,90,37,0.05), transparent 45%),
+    radial-gradient(circle at 80% 70%, rgba(194,90,37,0.04), transparent 50%);
+  z-index: 0;
+}
+
+#root { position: relative; z-index: 1; }
+
+h1, h2, h3, h4 {
+  font-family: 'Fraunces', Georgia, serif;
+  color: var(--ink-0);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 144;
+}
+h1 { font-size: 2.4rem; line-height: 1.05; font-weight: 300; }
+h2 { font-size: 1.5rem; line-height: 1.15; font-weight: 400; }
+h3 { font-size: 1.1rem; line-height: 1.2;  font-weight: 500; font-variation-settings: "opsz" 36; }
+
+code, .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.88em; }
+
+button, input, textarea, select { font-family: inherit; font-size: inherit; color: inherit; }
+
+button {
+  cursor: pointer;
+  background: var(--bg-2);
+  color: var(--ink-0);
+  border: 1px solid var(--line);
+  padding: 10px 18px;
+  border-radius: 2px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  transition: all 160ms cubic-bezier(.2,.7,.2,1);
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button.primary {
+  background: var(--accent);
+  color: var(--bg-0);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+  color: var(--bg-0);
+}
+button.ghost { background: transparent; }
+
+input, textarea, select {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  padding: 10px 14px;
+  border-radius: 2px;
+  width: 100%;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+textarea { resize: vertical; min-height: 90px; }
+label { display: block; color: var(--ink-2); font-size: 0.85rem; margin-bottom: 6px;
+  letter-spacing: 0.04em; text-transform: uppercase; font-weight: 500; }
