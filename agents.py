@@ -20,7 +20,7 @@ import logging
 import re
 from typing import Any
 
-from llm_client import llm_call, LLMTask
+from backend.llm import llm_call, LLMTask
 from models import (
     ExtractedTopic,
     TopicExtractionResult,

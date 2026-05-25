@@ -34,13 +34,7 @@ from agents import (                         # noqa: E402
     topic_extraction_agent,
     viz_suggestion_agent,
 )
-from llm_client import (                     # noqa: E402
-    TEXT_MODEL,
-    TOKEN_BUDGET_PER_JOB,
-    REASONING_EFFORT,
-    is_reasoning_model,
-    token_tracker,
-)
+from backend.llm import is_reasoning_model, token_tracker  # noqa: E402
 from models import (                         # noqa: E402
     EmbedManifestEntry,
     HealthResponse,
@@ -152,15 +146,15 @@ app.include_router(_spa.router)
 def _on_startup() -> None:
     VIZ_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    status("SERVER STARTUP", f"text_model={TEXT_MODEL}")
+    status("SERVER STARTUP", f"text_model={settings.openai_text_model}")
     logger.info("[Startup] OPENAI_API_KEY present: %s",
                 "yes" if settings.openai_api_key else "NO")
     logger.info("[Startup] FIXED_MAIN_PATH = %s   exists=%s",
                 FIXED_MAIN_PATH, FIXED_MAIN_PATH.exists())
     logger.info("[Startup] VIZ_OUTPUT_DIR = %s", VIZ_OUTPUT_DIR)
-    logger.info("[Startup] TOKEN_BUDGET_PER_JOB = %d", TOKEN_BUDGET_PER_JOB)
-    if is_reasoning_model(TEXT_MODEL):
-        logger.info("[Startup] Reasoning model — REASONING_EFFORT=%s", REASONING_EFFORT)
+    logger.info("[Startup] TOKEN_BUDGET_PER_JOB = %d", settings.token_budget_per_job)
+    if is_reasoning_model(settings.openai_text_model):
+        logger.info("[Startup] Reasoning model — REASONING_EFFORT=%s", settings.reasoning_effort)
     if not FIXED_MAIN_PATH.exists():
         logger.warning(
             "[Startup] WARNING: fixed_main_v6.py not found. The /build endpoint will fail. "
