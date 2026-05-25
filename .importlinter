@@ -1,0 +1,31 @@
+[importlinter]
+root_packages =
+    backend
+include_external_packages = True
+
+[importlinter:contract:1]
+name = api -> services only (never the reverse)
+type = forbidden
+source_modules =
+    backend.services
+forbidden_modules =
+    backend.api
+
+[importlinter:contract:2]
+name = backend.llm depends on nothing else under backend
+type = forbidden
+source_modules =
+    backend.llm
+forbidden_modules =
+    backend.api
+    backend.services
+    backend.viz_generator
+
+[importlinter:contract:3]
+name = api/ and services/ never import from main.py
+type = forbidden
+source_modules =
+    backend.api
+    backend.services
+forbidden_modules =
+    main
