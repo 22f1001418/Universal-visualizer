@@ -68,6 +68,7 @@ from backend.viz_generator.postprocess import (  # noqa: E402
 )
 from backend.config import settings              # noqa: E402
 from backend.api import health as _health        # noqa: E402
+from backend.api import jobs as _jobs            # noqa: E402
 
 
 # ─────────────────────────────────────────────
@@ -144,6 +145,7 @@ app.add_middleware(
 )
 
 app.include_router(_health.router)
+app.include_router(_jobs.router)
 
 
 # ─────────────────────────────────────────────
@@ -252,42 +254,6 @@ async def upload_script(
 # Module-level cache — script text isn't part of JobState because it's large
 # and we don't need to serialize it. Keyed by job_id; cleared in purge_stale path.
 _job_script_cache: dict[str, str] = {}
-
-
-# ─────────────────────────────────────────────
-# 2. Job listing / detail
-# ─────────────────────────────────────────────
-
-@app.get("/jobs", response_model=list[JobSummary])
-def list_jobs() -> list[JobSummary]:
-    return [
-        JobSummary(
-            job_id=j.job_id,
-            script_name=j.script_name,
-            status=j.status,
-            created_at=j.created_at,
-            topic_count=len(j.topics),
-            build_count=len(j.builds),
-        )
-        for j in job_store.list_summaries()
-    ]
-
-
-@app.get("/jobs/{job_id}", response_model=JobState)
-def get_job(job_id: str) -> JobState:
-    try:
-        return job_store.get_or_404(job_id)
-    except KeyError:
-        raise HTTPException(404, f"Job {job_id} not found")
-
-
-@app.get("/jobs/{job_id}/topics")
-def get_topics(job_id: str) -> dict:
-    try:
-        job = job_store.get_or_404(job_id)
-    except KeyError:
-        raise HTTPException(404, f"Job {job_id} not found")
-    return {"job_id": job_id, "topics": [t.model_dump() for t in job.topics]}
 
 
 # ─────────────────────────────────────────────
