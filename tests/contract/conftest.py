@@ -18,4 +18,12 @@ def client(monkeypatch, tmp_path) -> TestClient:
     (tmp_path / "viz_outputs").mkdir(parents=True, exist_ok=True)
 
     from main import app  # noqa: WPS433 — late import after env setup
+
+    # backend.config.settings is a module-level singleton bound at import time,
+    # so monkeypatch.setenv above doesn't retroactively reach the live object.
+    # Patch the live attribute too — many routes read settings.viz_output_dir
+    # directly (e.g., backend.api.preview).
+    from backend.config import settings as _settings
+    monkeypatch.setattr(_settings, "viz_output_dir", str(tmp_path / "viz_outputs"))
+
     return TestClient(app)
