@@ -64,6 +64,8 @@ def get_client() -> OpenAI:
     client_timeout = float(os.getenv("LLM_CLIENT_TIMEOUT", "600"))
     _client = OpenAI(api_key=api_key, timeout=client_timeout, max_retries=0)
     logger.info("[LLM] OpenAI client ready  timeout=%.0fs", client_timeout)
+    logger.info("[LLM] Reasoning models (gpt-5*/o-series) will use max_completion_tokens + reasoning_effort=%s",
+                REASONING_EFFORT)
     return _client
 
 
@@ -121,8 +123,11 @@ def llm_call(
                 time.sleep(delay)
                 continue
             if exc.status_code == 403 and code == "model_not_found":
-                logger.error("[LLM] FAIL %s — 403 model_not_found for '%s': %s",
-                             step_label, model, message)
+                logger.error("[LLM] FAIL %s — 403 model_not_found for '%s'.", step_label, model)
+                logger.error("       Cause: %s", message)
+                logger.error("       Fix:   set OPENAI_TEXT_MODEL=gpt-4o-mini (or a model you have access to)")
+            elif exc.status_code == 403:
+                logger.error("[LLM] FAIL %s — 403 (code=%s): %s", step_label, code, message)
             elif exc.status_code == 404:
                 logger.error("[LLM] FAIL %s — model '%s' not found.", step_label, model)
             else:
@@ -137,8 +142,12 @@ def llm_call(
             continue
         except APITimeoutError as e:
             delay = min(BASE_DELAY * (2 ** (attempt - 1)), MAX_DELAY)
-            logger.warning("[LLM] retry %d/%d %s — client timeout. Waiting %.0fs.",
-                           attempt, MAX_RETRIES, step_label, delay)
+            client_timeout = float(os.getenv("LLM_CLIENT_TIMEOUT", "600"))
+            logger.warning(
+                "[LLM] retry %d/%d %s — client timeout (model=%s slower than "
+                "LLM_CLIENT_TIMEOUT=%.0fs). Waiting %.0fs.",
+                attempt, MAX_RETRIES, step_label, model, client_timeout, delay,
+            )
             last_exc = e
             time.sleep(delay)
             continue
