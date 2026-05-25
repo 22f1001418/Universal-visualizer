@@ -21,7 +21,7 @@ from backend.viz_generator.postprocess import (
 )
 from backend.github_publisher import publish_viz_repo
 from backend.models import JobStatus
-from orchestrator import run_viz_build
+from backend.orchestrator import run_viz_build
 from backend.store import job_store
 
 logger = logging.getLogger("hackmd-orch.build")
