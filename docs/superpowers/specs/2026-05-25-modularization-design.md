@@ -888,3 +888,18 @@ None blocking. The following are deferred to the implementation plan:
    `JobStore` with persistent state. Out of scope here; partly enabled by the
    observability project's SQLite layer.
 3. **Auth / multi-tenancy.** Out of scope.
+
+## Findings discovered during Stage 1 implementation
+
+- **`fixed_main_v6.py` is a divergent superset of `llm_client.py`, not a duplicate.**
+  It supports two LLM providers (OpenAI + Gemini) via the `LLM_PROVIDER` env var,
+  uses a `messages: list[dict]` interface (not `system_prompt + user_prompt`),
+  and its `TokenUsageTracker` exposes a `print_summary()` not present on the
+  orchestrator's version. Stage 1 deduplicated what was safely portable
+  (pricing table, reasoning-prefix detection, error parsing). The remaining
+  pieces — `_init_client` with provider switching, the local `TokenUsageTracker`,
+  and `llm_call` with messages-list signature — are deferred to **Stage 2**.
+  Stage 2 will either (a) extend `backend/llm` to support multi-provider with
+  a single interface, or (b) keep the viz generator's LLM core separate and
+  document it as a distinct module. The decision is itself part of the Stage 2
+  brainstorming.
