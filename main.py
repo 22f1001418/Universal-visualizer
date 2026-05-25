@@ -66,6 +66,7 @@ from backend.viz_generator.postprocess import (  # noqa: E402
     _patch_vite_config_base,
     _inject_error_boundary,
 )
+from backend.config import settings              # noqa: E402
 
 
 # ─────────────────────────────────────────────
@@ -152,7 +153,7 @@ def _on_startup() -> None:
 
     status("SERVER STARTUP", f"text_model={TEXT_MODEL}")
     logger.info("[Startup] OPENAI_API_KEY present: %s",
-                "yes" if os.getenv("OPENAI_API_KEY") else "NO")
+                "yes" if settings.openai_api_key else "NO")
     logger.info("[Startup] FIXED_MAIN_PATH = %s   exists=%s",
                 FIXED_MAIN_PATH, FIXED_MAIN_PATH.exists())
     logger.info("[Startup] VIZ_OUTPUT_DIR = %s", VIZ_OUTPUT_DIR)
