@@ -22,3 +22,4 @@ def mount_routers(app: FastAPI) -> None:
     app.include_router(manifest.router)
     app.include_router(preview.router)
     app.include_router(spa.router)
+    spa.mount_static(app)
