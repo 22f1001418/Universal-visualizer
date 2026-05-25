@@ -112,3 +112,9 @@ test-results/
 # LangSmith / telemetry caches
 # ─────────────────────────────────────────────
 .langsmith/
+
+# Stage 4 SPA build outputs
+frontend/node_modules/
+frontend/dist/
+backend/static/
+backend/static_v2/

@@ -1,0 +1,3 @@
+/* frontend/src/lib/theme.css — placeholder for Task 2 */
+:root { --bg-0: #fafaf7; }
+body { background: var(--bg-0); }
