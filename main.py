@@ -57,11 +57,13 @@ from orchestrator import (                   # noqa: E402
 )
 from store import job_store                   # noqa: E402
 from backend.config import settings              # noqa: E402
+from backend.api import builds as _builds            # noqa: E402
 from backend.api import health as _health        # noqa: E402
 from backend.api import jobs as _jobs            # noqa: E402
-from backend.api import suggestions as _suggestions  # noqa: E402
 from backend.api import manifest as _manifest        # noqa: E402
-from backend.api import builds as _builds            # noqa: E402
+from backend.api import preview as _preview      # noqa: E402
+from backend.api import spa as _spa              # noqa: E402
+from backend.api import suggestions as _suggestions  # noqa: E402
 
 
 # ─────────────────────────────────────────────
@@ -142,6 +144,8 @@ app.include_router(_jobs.router)
 app.include_router(_suggestions.router)
 app.include_router(_manifest.router)
 app.include_router(_builds.router)
+app.include_router(_preview.router)
+app.include_router(_spa.router)
 
 
 # ─────────────────────────────────────────────
@@ -184,41 +188,12 @@ def _on_startup() -> None:
 # ─────────────────────────────────────────────
 
 # ─────────────────────────────────────────────
-# 6. Preview screenshots / static files
+# 6. Preview screenshots / static files — moved to backend/api/preview.py (Task 8)
 # ─────────────────────────────────────────────
 
-@app.get("/preview")
-def preview_file(path: str) -> FileResponse:
-    """Serve a screenshot or generated file by absolute path.
-
-    Locked down to paths inside VIZ_OUTPUT_DIR — no traversal allowed.
-    """
-    target = Path(path).resolve()
-    try:
-        target.relative_to(VIZ_OUTPUT_DIR)
-    except ValueError:
-        raise HTTPException(400, "Path outside VIZ_OUTPUT_DIR")
-    if not target.exists():
-        raise HTTPException(404, "File not found")
-    media_type = "image/png" if target.suffix.lower() == ".png" else None
-    return FileResponse(path=str(target), media_type=media_type, filename=target.name)
-
-
 # ─────────────────────────────────────────────
-# 7. Frontend (single-file React)
+# 7. Frontend (single-file React) — moved to backend/api/spa.py (Task 9)
 # ─────────────────────────────────────────────
-
-_FRONTEND_FILE = Path(__file__).resolve().parent / "index.html"
-
-
-@app.get("/", response_class=HTMLResponse)
-def index() -> HTMLResponse:
-    if not _FRONTEND_FILE.exists():
-        return HTMLResponse(
-            "<h1>Frontend not found</h1><p>Expected at: " + str(_FRONTEND_FILE) + "</p>",
-            status_code=500,
-        )
-    return HTMLResponse(_FRONTEND_FILE.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
