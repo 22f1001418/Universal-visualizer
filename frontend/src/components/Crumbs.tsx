@@ -1,6 +1,4 @@
-// Temporary home for the Screen type.
-// Task 11 will move the canonical definition into App.tsx and import from there.
-export type Screen = 'upload' | 'topics' | 'suggestions' | 'building' | 'done';
+import type { Screen } from '../App';
 
 const STEPS: Screen[] = ['upload', 'topics', 'suggestions', 'building', 'done'];
 
