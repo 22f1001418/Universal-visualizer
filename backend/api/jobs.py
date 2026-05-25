@@ -11,8 +11,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from backend.api.deps import get_job
-from models import JobState, JobSummary
-from store import job_store
+from backend.models import JobState, JobSummary
+from backend.store import job_store
 
 router = APIRouter(tags=["jobs"])
 
@@ -53,7 +53,7 @@ import uuid
 from fastapi import File, Form, HTTPException, UploadFile
 
 from agents import topic_extraction_agent
-from models import (
+from backend.models import (
     JobStatus,
     UploadResponse,
 )

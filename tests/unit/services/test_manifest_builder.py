@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from backend.services.manifest_builder import build_manifest
-from models import (
+from backend.models import (
     BuildTask,
     EmbedManifestEntry,
     ExtractedTopic,

@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from agents import viz_suggestion_agent
 from backend.api.deps import get_job
-from models import JobState, VizSuggestionsResult
-from store import job_store
+from backend.models import JobState, VizSuggestionsResult
+from backend.store import job_store
 
 router = APIRouter(tags=["suggestions"])
 logger = logging.getLogger("hackmd-orch")

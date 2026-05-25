@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from backend.config import settings
-from models import HealthResponse
+from backend.models import HealthResponse
 
 router = APIRouter(tags=["health"])
 

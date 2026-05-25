@@ -21,7 +21,7 @@ import re
 from typing import Any
 
 from backend.llm import llm_call, LLMTask
-from models import (
+from backend.models import (
     ExtractedTopic,
     TopicExtractionResult,
     VizSuggestion,

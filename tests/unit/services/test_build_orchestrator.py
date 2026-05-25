@@ -23,13 +23,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.services.build_orchestrator import run_build_task
-from models import (
+from backend.models import (
     BuildTask,
     ExtractedTopic,
     JobState,
     JobStatus,
 )
-from store import job_store
+from backend.store import job_store
 
 
 # ─────────────────────────────────────────────

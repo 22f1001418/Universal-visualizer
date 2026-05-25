@@ -8,8 +8,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from agents import assemble_viz_brief
 from backend.api.deps import get_job
 from backend.services.build_orchestrator import run_build_task
-from models import BuildRequest, BuildTask, JobState, JobStatus
-from store import job_store
+from backend.models import BuildRequest, BuildTask, JobState, JobStatus
+from backend.store import job_store
 
 router = APIRouter(tags=["builds"])
 

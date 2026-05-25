@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from threading import Lock
 from typing import Optional
 
-from models import JobState, JobStatus
+from backend.models import JobState, JobStatus
 
 logger = logging.getLogger("hackmd-orch.store")
 

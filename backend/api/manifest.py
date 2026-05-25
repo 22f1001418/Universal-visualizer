@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends
 from backend.api.deps import get_job
 from backend.llm import token_tracker
 from backend.services.manifest_builder import build_manifest
-from models import JobState
-from store import job_store
+from backend.models import JobState
+from backend.store import job_store
 
 router = APIRouter(tags=["manifest"])
 

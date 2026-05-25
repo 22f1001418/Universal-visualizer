@@ -20,9 +20,9 @@ from backend.viz_generator.postprocess import (
     _patch_vite_config_base,
 )
 from github_publisher import publish_viz_repo
-from models import JobStatus
+from backend.models import JobStatus
 from orchestrator import run_viz_build
-from store import job_store
+from backend.store import job_store
 
 logger = logging.getLogger("hackmd-orch.build")
 
