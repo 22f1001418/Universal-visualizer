@@ -18,8 +18,12 @@ def preview_file(path: str) -> FileResponse:
     Locked down to paths inside VIZ_OUTPUT_DIR — no traversal allowed.
     """
     target = Path(path).resolve()
+    # Resolve VIZ_OUTPUT_DIR too — otherwise comparing an absolute resolved
+    # target against a relative-string config silently rejects every real file
+    # (and on macOS, symlinks like /tmp → /private/tmp diverge mid-traversal).
+    viz_root = Path(settings.viz_output_dir).resolve()
     try:
-        target.relative_to(settings.viz_output_dir)
+        target.relative_to(viz_root)
     except ValueError:
         raise HTTPException(400, "Path outside VIZ_OUTPUT_DIR")
     if not target.exists():
