@@ -75,22 +75,7 @@ except ImportError:
     print("Missing: pip install openai python-dotenv playwright")
     sys.exit(1)
 
-# LangSmith tracing — optional. If installed and LANGSMITH_API_KEY is set,
-# every LLM call is logged to your LangSmith dashboard for inspection.
-try:
-    from langsmith.wrappers import wrap_openai
-    from langsmith import traceable
-    _LANGSMITH_AVAILABLE = True
-except ImportError:
-    _LANGSMITH_AVAILABLE = False
-    # Stub decorator so @traceable still works when LangSmith isn't installed
-    def traceable(*dargs, **dkwargs):  # type: ignore
-        def decorator(fn):
-            return fn
-        # Support both @traceable and @traceable(name="...")
-        if dargs and callable(dargs[0]):
-            return dargs[0]
-        return decorator
+# (LangSmith tracing setup moved to backend/viz_generator/llm.py in Stage 2 Task 2)
 
 
 # ─────────────────────────────────────────────────────────────
