@@ -234,3 +234,21 @@ label { display: block; color: var(--ink-2); font-size: 0.85rem; margin-bottom: 
 .diff-pill.beginner       { color: var(--good);  border-color: rgba(47,125,62,0.35);  background: rgba(47,125,62,0.06); }
 .diff-pill.intermediate   { color: var(--warn);  border-color: rgba(168,116,31,0.35); background: rgba(168,116,31,0.06); }
 .diff-pill.advanced       { color: var(--bad);   border-color: rgba(179,54,31,0.35);  background: rgba(179,54,31,0.06); }
+
+/* ── Suggestions page ────────────────────────────────────────────────── */
+.complexity-badge {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-3); margin-left: 12px;
+}
+
+.benefit-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
+}
+.benefit-row > div { display: flex; flex-direction: column; gap: 4px; }
+.benefit-row .who {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3);
+}
+.benefit-row .what { color: var(--ink-1); font-size: 0.9rem; line-height: 1.55; }
