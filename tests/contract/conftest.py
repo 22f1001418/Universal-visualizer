@@ -1,7 +1,6 @@
 """Contract test fixtures — TestClient against the current FastAPI app."""
 from __future__ import annotations
 
-import os
 import pytest
 from fastapi.testclient import TestClient
 
