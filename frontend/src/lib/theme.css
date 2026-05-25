@@ -252,3 +252,20 @@ label { display: block; color: var(--ink-2); font-size: 0.85rem; margin-bottom: 
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3);
 }
 .benefit-row .what { color: var(--ink-1); font-size: 0.9rem; line-height: 1.55; }
+
+/* ── Done page — manifest block + screenshot thumbnail ───────────────── */
+.manifest-block {
+  background: var(--bg-0); border: 1px solid var(--line); padding: 24px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;
+  color: var(--ink-1); white-space: pre-wrap; word-break: break-word;
+  line-height: 1.7; border-radius: 2px;
+}
+
+.shot-thumb {
+  width: 100%; max-width: 480px; aspect-ratio: 1/1;
+  background: var(--bg-2); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 12px; border-radius: 2px; overflow: hidden;
+}
+.shot-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.shot-thumb .placeholder { color: var(--ink-3); font-size: 0.85rem; }
