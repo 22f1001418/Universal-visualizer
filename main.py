@@ -32,7 +32,6 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 load_dotenv()
 
 from agents import (                         # noqa: E402
-    assemble_viz_brief,
     topic_extraction_agent,
     viz_suggestion_agent,
 )
@@ -44,9 +43,6 @@ from llm_client import (                     # noqa: E402
     token_tracker,
 )
 from models import (                         # noqa: E402
-    BuildPhase,
-    BuildRequest,
-    BuildTask,
     EmbedManifestEntry,
     HealthResponse,
     JobState,
@@ -58,19 +54,14 @@ from models import (                         # noqa: E402
 from orchestrator import (                   # noqa: E402
     FIXED_MAIN_PATH,
     VIZ_OUTPUT_DIR,
-    run_viz_build,
 )
 from store import job_store                   # noqa: E402
-from github_publisher import publish_viz_repo  # noqa: E402
-from backend.viz_generator.postprocess import (  # noqa: E402
-    _patch_vite_config_base,
-    _inject_error_boundary,
-)
 from backend.config import settings              # noqa: E402
 from backend.api import health as _health        # noqa: E402
 from backend.api import jobs as _jobs            # noqa: E402
 from backend.api import suggestions as _suggestions  # noqa: E402
 from backend.api import manifest as _manifest        # noqa: E402
+from backend.api import builds as _builds            # noqa: E402
 
 
 # ─────────────────────────────────────────────
@@ -150,6 +141,7 @@ app.include_router(_health.router)
 app.include_router(_jobs.router)
 app.include_router(_suggestions.router)
 app.include_router(_manifest.router)
+app.include_router(_builds.router)
 
 
 # ─────────────────────────────────────────────
@@ -183,204 +175,8 @@ def _on_startup() -> None:
 
 
 # ─────────────────────────────────────────────
-# 4. Trigger a build for one topic (calls fixed_main_v6.py)
+# 4. Trigger a build for one topic — moved to backend/api/builds.py (Task 6)
 # ─────────────────────────────────────────────
-
-@app.post("/jobs/{job_id}/topics/{topic_id}/build")
-async def build_topic_viz(
-    job_id: str,
-    topic_id: str,
-    request: BuildRequest,
-    background_tasks: BackgroundTasks,
-) -> dict:
-    try:
-        job = job_store.get_or_404(job_id)
-    except KeyError:
-        raise HTTPException(404, f"Job {job_id} not found")
-
-    topic = next((t for t in job.topics if t.id == topic_id), None)
-    if topic is None:
-        raise HTTPException(404, f"Topic {topic_id} not in job {job_id}")
-
-    suggestion = None
-    if request.suggestion_id:
-        sugs = job.suggestions.get(topic_id, [])
-        suggestion = next((s for s in sugs if s.id == request.suggestion_id), None)
-        if suggestion is None:
-            raise HTTPException(
-                400,
-                f"suggestion_id={request.suggestion_id} not found. "
-                "Call POST /suggestions first.",
-            )
-    elif not request.custom_notes.strip():
-        raise HTTPException(
-            400,
-            "Either suggestion_id or custom_notes must be provided.",
-        )
-
-    # Compose the short filename-safe topic + the full LLM-prompt brief.
-    # short_topic <= 60 chars (becomes the project directory name).
-    # full_brief  packs in the suggestion + custom notes for the LLM prompt.
-    short_topic, full_brief = assemble_viz_brief(topic, suggestion, request.custom_notes)
-
-    # GitHub publishing is now per-viz-repo and decided at publish time, not here.
-    # Old request.github_module / github_class fields are ignored for backwards-compat.
-
-    task = BuildTask(
-        id=f"build_{uuid.uuid4().hex[:8]}",
-        topic_id=topic_id,
-        selected_suggestion_id=request.suggestion_id,
-        custom_notes=request.custom_notes,
-        short_topic=short_topic,        # what subprocess gets via --topic
-        final_viz_brief=full_brief,     # full brief stored for traceability / UI
-        phase="queued",
-    )
-    job.builds[topic_id] = task
-    job_store.update(job_id, builds=job.builds, status=JobStatus.BUILDING)
-    job_store.append_log(
-        job_id,
-        f"Queued build for {topic_id}: short_topic='{short_topic}'  "
-        f"brief='{full_brief[:120]}'",
-    )
-
-    status(
-        "BUILD QUEUED",
-        f"job_id={job_id}  topic_id={topic_id}  short_topic='{short_topic}'",
-    )
-
-    background_tasks.add_task(_run_build_task, job_id, topic_id)
-
-    return {
-        "job_id": job_id,
-        "topic_id": topic_id,
-        "build_id": task.id,
-        "phase": task.phase,
-        "short_topic": short_topic,
-        "final_viz_brief": full_brief,
-    }
-
-
-def _run_build_task(job_id: str, topic_id: str) -> None:
-    """Background-task wrapper: runs the subprocess builder, updates job state."""
-    job = job_store.get(job_id)
-    if job is None:
-        return
-    task = job.builds.get(topic_id)
-    if task is None:
-        return
-
-    def on_log(line: str) -> None:
-        # Cap the per-task progress log so we don't OOM on a chatty build
-        task.progress_log.append(line)
-        if len(task.progress_log) > 300:
-            task.progress_log = task.progress_log[-300:]
-
-    def on_phase(phase_name: str) -> None:
-        # The phase strings from orchestrator already match BuildPhase literals
-        task.phase = phase_name  # type: ignore[assignment]
-        logger.info("[Build %s] phase -> %s", topic_id, phase_name)
-
-    status("BUILD START", f"job_id={job_id}  topic_id={topic_id}")
-
-    # Use short_topic (<=60 chars, ASCII-safe) for the subprocess --topic arg,
-    # NOT the full brief. Long briefs cause "File name too long" errors when
-    # fixed_main_v6.py tries to slug them into a project directory name.
-    topic_arg = task.short_topic or task.final_viz_brief
-
-    try:
-        result = run_viz_build(
-            topic_brief=topic_arg,
-            on_log=on_log,
-            on_phase_change=on_phase,
-        )
-    except Exception as e:                # noqa: BLE001  — never let a build crash the worker
-        logger.exception("[Build] subprocess crashed: %s", e)
-        task.phase = "failed"
-        task.error = f"subprocess crashed: {e}"
-        task.completed_at = datetime.utcnow()
-        job_store.update(job_id, builds=job.builds, status=JobStatus.FAILED)
-        return
-
-    task.completed_at = result.completed_at or datetime.utcnow()
-    task.project_dir = result.project_dir
-    task.screenshot_path = result.screenshot_path
-    task.error = result.error or ""
-    task.phase = "completed" if result.success else "failed"
-
-    # ── Patch vite.config.ts to use relative asset paths (base: './') ──
-    # Without this, dist/index.html references /assets/... absolutely, which
-    # 404s on any subpath deploy AND looks broken if a host serves the source
-    # repo root instead of dist/. Safe to apply unconditionally — `./` works
-    # at root and subpath alike.
-    if result.success and result.project_dir:
-        try:
-            _patch_vite_config_base(Path(result.project_dir), on_log=on_log)
-        except Exception as exc:                # noqa: BLE001 — patcher must never crash the build
-            logger.warning("[Build %s] vite.config patch skipped: %s", topic_id, exc)
-
-    # ── Wrap <App/> in an ErrorBoundary so first-render crashes are visible ──
-    # The LLM-generated App.tsx occasionally throws on initial render (bad
-    # regex, undefined access, etc.). Without a boundary, React 18 unmounts
-    # the tree and the deployed page goes blank with no clue. The boundary
-    # renders the actual error + stack inline so the failure is debuggable
-    # from the deployed page itself.
-    if result.success and result.project_dir:
-        try:
-            _inject_error_boundary(Path(result.project_dir), on_log=on_log)
-        except Exception as exc:                # noqa: BLE001
-            logger.warning("[Build %s] ErrorBoundary injection skipped: %s", topic_id, exc)
-
-    # ── Publish the viz to its own standalone GitHub repo ──
-    if result.success and result.project_dir and PUBLISH_TO_GITHUB:
-        if not os.getenv("GITHUB_TOKEN", "").strip():
-            task.github_status = "skipped"
-            task.github_error = "GITHUB_TOKEN not set"
-            on_log("[GitHub] skipped — GITHUB_TOKEN not set")
-        else:
-            status("GITHUB PUBLISH", f"job_id={job_id}  topic_id={topic_id}  project={result.project_dir}")
-            task.github_status = "publishing"
-            try:
-                slug = task.short_topic or Path(result.project_dir).name
-                pub = publish_viz_repo(
-                    project_dir=result.project_dir,
-                    slug=slug,
-                    description=(task.final_viz_brief or slug)[:300],
-                    include_dist=GITHUB_INCLUDE_DIST,
-                    private=GITHUB_REPOS_PRIVATE,
-                    on_log=on_log,
-                )
-                task.github_status = "published"
-                task.github_repo_url = pub.html_url
-                task.github_clone_url = pub.clone_url
-                task.github_repo_name = pub.repo_name
-                task.github_commit_sha = pub.commit_sha
-                logger.info("[Build %s] Published to %s (%d files)",
-                            topic_id, pub.html_url, pub.file_count)
-            except Exception as exc:                # noqa: BLE001 — publish must never crash the build
-                logger.exception("[Build %s] GitHub publish failed: %s", topic_id, exc)
-                task.github_status = "failed"
-                task.github_error = str(exc)[:500]
-                on_log(f"[GitHub] FAILED — {exc}")
-
-    # Update overall job status only when ALL builds in the job are done
-    all_builds_finished = all(
-        b.phase in ("completed", "failed") for b in job.builds.values()
-    )
-    if all_builds_finished:
-        any_failed = any(b.phase == "failed" for b in job.builds.values())
-        new_status = JobStatus.DONE if not any_failed else JobStatus.FAILED
-        # Build the manifest from successful tasks
-        manifest = _build_manifest(job)
-        job_store.update(
-            job_id, builds=job.builds, status=new_status, manifest=manifest,
-        )
-    else:
-        job_store.update(job_id, builds=job.builds)
-
-    status(
-        "BUILD DONE" if result.success else "BUILD FAILED",
-        f"job_id={job_id}  topic_id={topic_id}  phase={task.phase}",
-    )
 
 
 # ─────────────────────────────────────────────
