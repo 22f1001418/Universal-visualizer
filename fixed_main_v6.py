@@ -134,15 +134,28 @@ PREVIEW_PAGE_TIMEOUT: int = 12_000     # ms — Playwright page.goto timeout
 PREVIEW_IDLE_TIMEOUT: int = 10_000     # ms — Playwright networkidle timeout
 INTERACTION_SETTLE: float = 1.2        # seconds — pause after click for re-render
 
-ERROR_DISPLAY_MAX_LINES: int = 40
-
-PROMPT_SIZE_WARN_CHARS: int = 200_000
-
-# Allowed file extensions that the LLM may produce
-ALLOWED_FILE_EXTENSIONS: set[str] = {
-    ".tsx", ".ts", ".jsx", ".js", ".cjs", ".mjs",
-    ".css", ".html", ".json",
-}
+# These constants now live in the dedicated sub-modules; re-imported here
+# for backward compatibility while Stage 2 modularization progresses.
+from backend.viz_generator.files import (
+    ERROR_DISPLAY_MAX_LINES,
+    ALLOWED_FILE_EXTENSIONS,
+    _filter_bogus_files,
+    _validate_filepath,
+    write_to_disk,
+    enforce_pinned_deps,
+    print_error_block,
+)
+from backend.viz_generator.parsing import (
+    PROMPT_SIZE_WARN_CHARS,
+    _BOGUS_STANDALONE,
+    _FILENAME_HINT,
+    parse_files,
+    _parse_marker_format,
+    _clean_file_content,
+    _parse_codeblock_format,
+    _extract_filename,
+    format_files_for_prompt,
+)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -893,273 +906,15 @@ Reply with ONLY the category name, nothing else."""
 # ─────────────────────────────────────────────────────────────
 # UTILITIES
 # ─────────────────────────────────────────────────────────────
-
-_FILENAME_HINT = re.compile(
-    r"(?:[\w\-./]+/)?[\w\-]+\.(?:tsx?|jsx?|css|html|json|js|cjs|mjs)\b"
-)
-
-
-# Filenames that are almost always the result of an LLM splitting a composite
-# filename (e.g. "tsconfig.node.json" gets split into "tsconfig.json" + "node.json").
-# When seen as standalone filenames they're fake and must be discarded.
-_BOGUS_STANDALONE = frozenset({
-    "node.json",          # split from tsconfig.node.json
-    "config.js",          # split from vite.config.js / tailwind.config.js
-    "config.ts",          # split from vite.config.ts
-    "vite.ts",            # split from vite.config.ts
-    "tailwind.js",        # split from tailwind.config.js
-    "postcss.js",         # split from postcss.config.js
-})
-
-
-def _filter_bogus_files(files: dict[str, str]) -> dict[str, str]:
-    """Remove obviously-fake filenames produced by LLMs splitting composites."""
-    cleaned: dict[str, str] = {}
-    for name, body in files.items():
-        if Path(name).name in _BOGUS_STANDALONE:
-            log.warning(
-                "  ⚠️  Rejecting suspicious filename '%s' — likely an LLM split "
-                "of a composite name. Skipping.", name
-            )
-            continue
-        cleaned[name] = body
-    return cleaned
-
-
-def parse_files(text: str) -> dict[str, str]:
-    """
-    Parse files from LLM output. Tolerates several formats:
-      1. ==== FILE: name ====  ...  ==== END FILE ====   (preferred)
-      2. ```lang src/foo.tsx \n ...  ```                  (markdown code block w/ filename)
-      3. **File: name** \n ```lang \n ... \n ```          (bold header + code block)
-      4. ### name \n ```lang \n ... \n ```                (markdown heading + code block)
-      5. // File: name \n ...                             (inline comment header)
-    Returns {} if nothing parseable found.
-    """
-    files = _parse_marker_format(text)
-    if files:
-        return _filter_bogus_files(files)
-    return _filter_bogus_files(_parse_codeblock_format(text))
-
-
-def _parse_marker_format(text: str) -> dict[str, str]:
-    files: dict[str, str] = {}
-    lines = text.split("\n")
-    current_file: str | None = None
-    current_content: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("==== FILE:"):
-            if current_file:
-                files[current_file] = _clean_file_content(current_content)
-            current_file = stripped.replace("==== FILE:", "").replace("====", "").strip()
-            current_content = []
-        elif stripped.startswith("==== END FILE"):
-            if current_file:
-                files[current_file] = _clean_file_content(current_content)
-            current_file = None
-            current_content = []
-        else:
-            if current_file is not None:
-                if line.startswith("```") and not current_content:
-                    continue
-                current_content.append(line)
-    if current_file and current_content:
-        files[current_file] = _clean_file_content(current_content)
-    return files
-
-
-def _clean_file_content(lines: list[str]) -> str:
-    """Join content lines and strip only leading/trailing backtick fences and whitespace."""
-    content = "\n".join(lines).strip()
-    if content.startswith("```"):
-        first_newline = content.find("\n")
-        if first_newline != -1:
-            content = content[first_newline + 1:]
-    if content.endswith("```"):
-        content = content[:-3]
-    return content.strip()
-
-
-def _parse_codeblock_format(text: str) -> dict[str, str]:
-    """
-    Look for fenced code blocks where the filename appears either:
-      - in the fence info string:   ```tsx src/App.tsx
-      - in the line just above the fence (heading, bold, or comment style)
-    """
-    files: dict[str, str] = {}
-    lines = text.split("\n")
-    i = 0
-    pending_filename: str | None = None
-    pending_line_idx: int = -1
-    while i < len(lines):
-        line = lines[i]
-        fence_match = re.match(r"^\s*```([\w+\-]*)\s*(.*)$", line)
-        if fence_match:
-            rest = fence_match.group(2).strip()
-            fn_in_fence = _extract_filename(rest)
-            filename = fn_in_fence or pending_filename
-            pending_filename = None
-            content_lines: list[str] = []
-            i += 1
-            # MINOR-4: closing fence accepts optional trailing language tag or whitespace
-            while i < len(lines) and not re.match(r"^\s*```\w*\s*$", lines[i]):
-                content_lines.append(lines[i])
-                i += 1
-            i += 1  # skip closing fence
-            if filename:
-                files[filename] = "\n".join(content_lines).rstrip()
-            continue
-
-        fn_hint = _extract_filename(line)
-        if fn_hint:
-            pending_filename = fn_hint
-            pending_line_idx = i
-        elif line.strip():
-            if pending_filename and (i - pending_line_idx) > 2:
-                pending_filename = None
-        i += 1
-    return files
-
-
-def _extract_filename(s: str) -> str | None:
-    """Pull a path-looking token out of a line (or None if none looks plausible)."""
-    s = s.strip().strip("*#<>:").strip()
-    s = re.sub(r"^(file|filename|path)\s*[:=]\s*", "", s, flags=re.IGNORECASE)
-    s = s.rstrip(":")
-    m = _FILENAME_HINT.search(s)
-    if not m:
-        return None
-    candidate = m.group(0)
-    if len(candidate) > 80 or candidate.count(" ") > 0:
-        return None
-    return candidate
-
-
-def format_files_for_prompt(files: dict[str, str]) -> str:
-    """Serialize files dict into the ==== FILE ==== format for LLM prompts.
-
-    MINOR-3: Warns when the serialized codebase is large enough to risk
-    overflowing smaller model context windows.
-    """
-    result = "\n\n".join(
-        f"==== FILE: {n} ====\n{c}\n==== END FILE ===="
-        for n, c in files.items()
-    )
-    if len(result) > PROMPT_SIZE_WARN_CHARS:
-        log.warning(
-            "  ⚠️  Codebase prompt is %d chars — may approach context window limits "
-            "on smaller models. Consider reducing file count.",
-            len(result),
-        )
-    return result
-
-
-def _validate_filepath(project_dir: Path, filename: str) -> Path:
-    """
-    Validate that the filename resolves inside project_dir,
-    and only has an allowed extension.
-    Raises ValueError on path traversal or disallowed extension.
-    """
-    resolved = (project_dir / filename).resolve()
-    project_resolved = project_dir.resolve()
-    if not str(resolved).startswith(str(project_resolved) + os.sep) and resolved != project_resolved:
-        raise ValueError(
-            f"Path traversal blocked — '{filename}' resolves outside project dir"
-        )
-    ext = resolved.suffix.lower()
-    if ext and ext not in ALLOWED_FILE_EXTENSIONS:
-        raise ValueError(
-            f"Disallowed file extension '{ext}' for '{filename}'. "
-            f"Allowed: {sorted(ALLOWED_FILE_EXTENSIONS)}"
-        )
-    return resolved
-
-
-# D10 fix: root files that must NOT end up inside src/
-_ROOT_ONLY_FILES = frozenset({
-    "index.html", "vite.config.ts", "vite.config.js",
-    "tsconfig.json", "tsconfig.node.json",
-    "tailwind.config.js", "postcss.config.js", "package.json",
-    "package-lock.json", ".eslintrc.cjs", ".eslintrc.js",
-})
-
-def write_to_disk(project_dir: Path, files: dict[str, str]) -> None:
-    (project_dir / "src").mkdir(exist_ok=True, parents=True)
-    for filename, content in files.items():
-        # D10: redirect misplaced root files (e.g. LLM outputs "src/index.html")
-        basename = Path(filename).name
-        if basename in _ROOT_ONLY_FILES and filename != basename:
-            log.warning(
-                "  D10: LLM placed '%s' inside a subdirectory — "
-                "redirecting to project root as '%s'.", filename, basename
-            )
-            filename = basename
-        try:
-            fp = _validate_filepath(project_dir, filename)
-        except ValueError as e:
-            log.warning("  Skipping file '%s': %s", filename, e)
-            continue
-        fp.parent.mkdir(parents=True, exist_ok=True)
-        fp.write_text(content, encoding="utf-8")
-
-
-def enforce_pinned_deps(files: dict[str, str]) -> dict[str, str]:
-    """Strip version range prefixes from package.json dependencies.
-
-    LOGICAL-8: Handles ^, ~, >=, >, <=, <, *, x, workspace: ranges in addition
-    to the previously handled ^ and ~ cases.
-    """
-    if "package.json" not in files:
-        return files
-    try:
-        pkg = json.loads(files["package.json"])
-    except json.JSONDecodeError:
-        return files
-
-    _range_prefix = re.compile(
-        r"^(workspace:[~^]?|[><=~^]+\s*)"
-    )
-
-    for section in ("dependencies", "devDependencies", "peerDependencies"):
-        deps = pkg.get(section)
-        if isinstance(deps, dict):
-            pinned: dict[str, Any] = {}
-            for k, v in deps.items():
-                if not isinstance(v, str):
-                    pinned[k] = v
-                    continue
-                stripped = _range_prefix.sub("", v).strip()
-                # Treat bare "*" or "x" as unpinnable — leave as-is and warn
-                if stripped in ("*", "x", ""):
-                    log.warning(
-                        "  ⚠️  Cannot pin '%s': '%s' has no concrete version.", k, v
-                    )
-                    pinned[k] = v
-                else:
-                    pinned[k] = stripped
-            pkg[section] = pinned
-
-    files["package.json"] = json.dumps(pkg, indent=2)
-    return files
-
-
-def print_error_block(label: str, text: str, max_lines: int = ERROR_DISPLAY_MAX_LINES) -> None:
-    """Print an error/output block to the terminal in a visible format."""
-    text = (text or "").strip()
-    if not text:
-        log.info("  ⚠️  %s: (no output captured)", label)
-        return
-    lines = text.splitlines()
-    truncated = len(lines) > max_lines
-    shown = lines[-max_lines:] if truncated else lines
-    log.info("\n  ━━━ %s ━━━", label)
-    if truncated:
-        log.info("  (showing last %d of %d lines)", max_lines, len(lines))
-    for line in shown:
-        log.info("  | %s", line)
-    log.info("  ━━━ end %s ━━━\n", label)
-
+# parse_files, _parse_marker_format, _clean_file_content,
+# _parse_codeblock_format, _extract_filename, format_files_for_prompt,
+# _FILENAME_HINT, _BOGUS_STANDALONE, PROMPT_SIZE_WARN_CHARS
+#   → now live in backend/viz_generator/parsing.py (re-imported above)
+#
+# _filter_bogus_files, _validate_filepath, write_to_disk,
+# enforce_pinned_deps, print_error_block, ERROR_DISPLAY_MAX_LINES,
+# ALLOWED_FILE_EXTENSIONS
+#   → now live in backend/viz_generator/files.py (re-imported above)
 
 # llm_call is imported from backend.viz_generator.llm above.
 
