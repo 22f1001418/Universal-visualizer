@@ -32,9 +32,9 @@ COPY --from=python-deps /usr/local/bin /usr/local/bin
 RUN playwright install chromium --with-deps \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy application source (repo-root entry points + backend package)
+# Copy application source (backend package + subprocess contract stub)
 COPY backend/ ./backend/
-COPY main.py agents.py orchestrator.py store.py models.py dev_server.py github_publisher.py fixed_main_v6.py ./
+COPY fixed_main_v6.py ./
 
 # Copy the built SPA into the location the / route expects
 COPY --from=frontend-builder /app/backend/static ./backend/static/
@@ -51,4 +51,4 @@ RUN useradd --create-home --uid 1001 app && chown -R app:app /app
 USER app
 
 EXPOSE 8001
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8001}"]
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8001}"]

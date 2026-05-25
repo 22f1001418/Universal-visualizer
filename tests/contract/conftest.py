@@ -17,7 +17,7 @@ def client(monkeypatch, tmp_path) -> TestClient:
     monkeypatch.setenv("VIZ_OUTPUT_DIR", str(tmp_path / "viz_outputs"))
     (tmp_path / "viz_outputs").mkdir(parents=True, exist_ok=True)
 
-    from main import app  # noqa: WPS433 — late import after env setup
+    from backend.main import app  # noqa: WPS433 — late import after env setup
 
     # backend.config.settings is a module-level singleton bound at import time,
     # so monkeypatch.setenv above doesn't retroactively reach the live object.
