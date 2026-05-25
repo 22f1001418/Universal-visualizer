@@ -19,7 +19,7 @@ from backend.viz_generator.postprocess import (
     _inject_error_boundary,
     _patch_vite_config_base,
 )
-from github_publisher import publish_viz_repo
+from backend.github_publisher import publish_viz_repo
 from backend.models import JobStatus
 from orchestrator import run_viz_build
 from backend.store import job_store
