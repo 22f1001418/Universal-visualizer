@@ -71,7 +71,6 @@ export function Upload({ onJobReady, onError }: Props) {
             <label htmlFor="upload-file">HackMD file</label>
             <input
               id="upload-file"
-              aria-label="Upload"
               type="file"
               accept=".md,.markdown"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
@@ -85,7 +84,7 @@ export function Upload({ onJobReady, onError }: Props) {
         </div>
         <div className="row-actions">
           <button className="primary" onClick={submit} disabled={busy || !file}>
-            {busy ? <><span className="spinner" /> Extracting topics…</> : 'Upload'}
+            {busy ? <><span className="spinner" /> Extracting topics…</> : 'Analyze script'}
           </button>
         </div>
       </div>

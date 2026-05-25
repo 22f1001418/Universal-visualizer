@@ -10,9 +10,9 @@ describe('Upload', () => {
     const onJobReady = vi.fn();
     render(<Upload onJobReady={onJobReady} onError={onError} />);
     const file = new File(['hi'], 'a.txt', { type: 'text/plain' });
-    const input = screen.getByLabelText(/upload/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/hackmd file/i) as HTMLInputElement;
     fireEvent.change(input, { target: { files: [file] } });
-    fireEvent.click(screen.getByRole('button', { name: /upload/i }));
+    fireEvent.click(screen.getByRole('button', { name: /analyze script/i }));
     await waitFor(() => expect(onError).toHaveBeenCalled());
     expect(onJobReady).not.toHaveBeenCalled();
   });
@@ -33,11 +33,11 @@ describe('Upload', () => {
     });
     vi.stubGlobal('fetch', fetchSpy);
     render(<Upload onJobReady={onJobReady} onError={vi.fn()} />);
-    const input = screen.getByLabelText(/upload/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/hackmd file/i) as HTMLInputElement;
     fireEvent.change(input, {
       target: { files: [new File(['# hi'], 'a.md', { type: 'text/markdown' })] },
     });
-    fireEvent.click(screen.getByRole('button', { name: /upload/i }));
+    fireEvent.click(screen.getByRole('button', { name: /analyze script/i }));
     await waitFor(() => expect(onJobReady).toHaveBeenCalledTimes(1));
     expect(onJobReady.mock.calls[0][0].job_id).toBe('j_1');
   });
