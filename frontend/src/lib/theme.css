@@ -103,3 +103,46 @@ input:focus, textarea:focus, select:focus {
 textarea { resize: vertical; min-height: 90px; }
 label { display: block; color: var(--ink-2); font-size: 0.85rem; margin-bottom: 6px;
   letter-spacing: 0.04em; text-transform: uppercase; font-weight: 500; }
+
+/* ── Crumbs ─────────────────────────────────────────────────────────── */
+.crumbs {
+  display: flex; gap: 4px; margin-bottom: 32px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+  color: var(--ink-3); letter-spacing: 0.05em; text-transform: uppercase;
+}
+.crumbs span.now { color: var(--accent); }
+.crumbs span:not(:last-child)::after { content: " /"; margin-left: 4px; color: var(--ink-3); }
+
+/* ── GithubRepoStatus — spinner ──────────────────────────────────────── */
+.spinner {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid var(--line); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  vertical-align: middle; margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── BuildCard — progress track ──────────────────────────────────────── */
+.progress-track {
+  display: flex; gap: 4px; margin: 24px 0;
+}
+.progress-track .seg {
+  flex: 1; height: 3px; background: var(--bg-2); border-radius: 1px;
+  position: relative; overflow: hidden;
+}
+.progress-track .seg.active::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: sweep 1.6s ease-in-out infinite;
+}
+.progress-track .seg.done { background: var(--accent); }
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+/* ── BuildCard — log tail ────────────────────────────────────────────── */
+.log-tail {
+  background: var(--bg-0); border: 1px solid var(--line); padding: 14px 18px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+  color: var(--ink-2); max-height: 240px; overflow-y: auto;
+  line-height: 1.65; border-radius: 2px;
+}
+.log-tail .line { white-space: pre; }
