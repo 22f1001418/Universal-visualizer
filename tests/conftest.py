@@ -43,9 +43,9 @@ def fake_llm(monkeypatch):
         return responses.get(step_label, '{"topics": []}')
 
     monkeypatch.setattr("backend.llm.client.llm_call", llm_call_stub)
-    # agents.py imports `llm_call` from backend.llm at module load —
+    # backend/agents.py imports `llm_call` from backend.llm at module load —
     # the local binding survives patching backend.llm.client, so patch it here too.
-    monkeypatch.setattr("agents.llm_call", llm_call_stub, raising=False)
+    monkeypatch.setattr("backend.agents.llm_call", llm_call_stub, raising=False)
 
     class FakeLLM:
         def __init__(self) -> None:

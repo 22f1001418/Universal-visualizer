@@ -5,7 +5,7 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from agents import assemble_viz_brief
+from backend.agents import assemble_viz_brief
 from backend.api.deps import get_job
 from backend.services.build_orchestrator import run_build_task
 from backend.models import BuildRequest, BuildTask, JobState, JobStatus

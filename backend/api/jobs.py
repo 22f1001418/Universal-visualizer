@@ -52,7 +52,7 @@ import uuid
 
 from fastapi import File, Form, HTTPException, UploadFile
 
-from agents import topic_extraction_agent
+from backend.agents import topic_extraction_agent
 from backend.models import (
     JobStatus,
     UploadResponse,

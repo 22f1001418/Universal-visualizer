@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from agents import viz_suggestion_agent
+from backend.agents import viz_suggestion_agent
 from backend.api.deps import get_job
 from backend.models import JobState, VizSuggestionsResult
 from backend.store import job_store
