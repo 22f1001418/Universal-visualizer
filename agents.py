@@ -20,7 +20,7 @@ import logging
 import re
 from typing import Any
 
-from llm_client import llm_call
+from llm_client import llm_call, LLMTask
 from models import (
     ExtractedTopic,
     TopicExtractionResult,
@@ -162,6 +162,7 @@ def topic_extraction_agent(
         job_id=job_id,
         temperature=0.2,
         max_tokens=4096,
+        task=LLMTask.AGENT_A_EXTRACT,
         json_mode=True,
     )
     data = _parse_json_safe(raw)
@@ -289,6 +290,7 @@ def viz_suggestion_agent(
         job_id=job_id,
         temperature=0.5,   # higher diversity for 5 distinct ideas
         max_tokens=3072,
+        task=LLMTask.AGENT_B_SUGGEST,
         json_mode=True,
     )
     data = _parse_json_safe(raw)
