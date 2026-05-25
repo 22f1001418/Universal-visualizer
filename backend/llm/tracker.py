@@ -14,15 +14,15 @@ Differences from the original:
 from __future__ import annotations
 
 import logging
-import os
 from threading import Lock
 from typing import Optional
 
+from backend.config import settings
 from backend.llm.pricing import cost_usd
 
 logger = logging.getLogger("hackmd-orch.llm")
 
-_DEFAULT_BUDGET = int(os.getenv("TOKEN_BUDGET_PER_JOB", "300000"))
+_DEFAULT_BUDGET = settings.token_budget_per_job
 
 
 class TokenUsageTracker:

@@ -14,7 +14,6 @@ Behaviour preserved from the original llm_client:
 from __future__ import annotations
 
 import logging
-import os
 import sys
 import time
 from typing import Optional
@@ -28,6 +27,7 @@ from openai import (
     RateLimitError,
 )
 
+from backend.config import settings
 from backend.llm.errors import extract_openai_error, is_retryable_status
 from backend.llm.reasoning import is_reasoning_model
 from backend.llm.tasks import LLMTask, resolve_model
@@ -36,11 +36,8 @@ from backend.llm.tracker import token_tracker
 logger = logging.getLogger("hackmd-orch.llm")
 
 
-REASONING_EFFORT = (os.getenv("REASONING_EFFORT", "low") or "low").lower()
-if REASONING_EFFORT not in ("low", "medium", "high"):
-    REASONING_EFFORT = "low"
-
-MAX_OUTPUT_TOKENS_DEFAULT = int(os.getenv("MAX_OUTPUT_TOKENS", "4096"))
+REASONING_EFFORT = settings.reasoning_effort
+MAX_OUTPUT_TOKENS_DEFAULT = settings.max_output_tokens
 
 
 _client: Optional[OpenAI] = None
@@ -52,7 +49,7 @@ def get_client() -> OpenAI:
     if _client is not None:
         return _client
 
-    api_key = os.getenv("OPENAI_API_KEY", "")
+    api_key = settings.openai_api_key
     if not api_key:
         logger.error("[FATAL] OPENAI_API_KEY missing. Add it to .env")
         sys.exit(1)
@@ -61,7 +58,7 @@ def get_client() -> OpenAI:
     logging.getLogger("openai._base_client").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    client_timeout = float(os.getenv("LLM_CLIENT_TIMEOUT", "600"))
+    client_timeout = settings.llm_client_timeout
     _client = OpenAI(api_key=api_key, timeout=client_timeout, max_retries=0)
     logger.info("[LLM] OpenAI client ready  timeout=%.0fs", client_timeout)
     logger.info("[LLM] Reasoning models (gpt-5*/o-series) will use max_completion_tokens + reasoning_effort=%s",
@@ -142,11 +139,10 @@ def llm_call(
             continue
         except APITimeoutError as e:
             delay = min(BASE_DELAY * (2 ** (attempt - 1)), MAX_DELAY)
-            client_timeout = float(os.getenv("LLM_CLIENT_TIMEOUT", "600"))
             logger.warning(
                 "[LLM] retry %d/%d %s — client timeout (model=%s slower than "
                 "LLM_CLIENT_TIMEOUT=%.0fs). Waiting %.0fs.",
-                attempt, MAX_RETRIES, step_label, model, client_timeout, delay,
+                attempt, MAX_RETRIES, step_label, model, settings.llm_client_timeout, delay,
             )
             last_exc = e
             time.sleep(delay)

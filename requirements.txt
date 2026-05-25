@@ -4,5 +4,6 @@ python-multipart>=0.0.9
 python-dotenv>=1.0.0
 openai>=1.66.0
 pydantic>=2.0.0
+pydantic-settings>=2.2.0,<3
 playwright>=1.40.0
 requests>=2.31.0
