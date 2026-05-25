@@ -43,6 +43,8 @@ class TokenUsageTracker:
         model: Optional[str] = None,
         reasoning_tokens: int = 0,
     ) -> None:
+        cost = cost_usd(input_tokens, output_tokens, model)
+
         with self._lock:
             self.total_input += input_tokens
             self.total_output += output_tokens
@@ -50,15 +52,16 @@ class TokenUsageTracker:
             job_total = 0
             if job_id is not None:
                 bucket = self._per_job.setdefault(
-                    job_id, {"input": 0, "output": 0, "calls": 0, "reasoning": 0}
+                    job_id, {"input": 0, "output": 0, "calls": 0, "reasoning": 0, "cost": 0.0}
                 )
                 bucket["input"] += input_tokens
                 bucket["output"] += output_tokens
                 bucket["calls"] += 1
                 bucket["reasoning"] += reasoning_tokens
+                # Accumulate cost per call (each call may use a different model under LLMTask routing).
+                bucket["cost"] = bucket.get("cost", 0.0) + cost
                 job_total = bucket["input"] + bucket["output"]
 
-        cost = cost_usd(input_tokens, output_tokens, model)
         model_tag = (model or "?")[:18]
 
         if job_id is not None:
@@ -88,16 +91,18 @@ class TokenUsageTracker:
 
     def job_summary(self, job_id: str) -> dict:
         with self._lock:
-            bucket = self._per_job.get(
-                job_id, {"input": 0, "output": 0, "calls": 0, "reasoning": 0}
-            )
+            # Copy the bucket inside the lock so concurrent record() calls
+            # can't mutate it between us reading and returning.
+            bucket = dict(self._per_job.get(
+                job_id, {"input": 0, "output": 0, "calls": 0, "reasoning": 0, "cost": 0.0}
+            ))
         return {
             "calls": bucket["calls"],
             "input_tokens": bucket["input"],
             "output_tokens": bucket["output"],
             "reasoning_tokens": bucket.get("reasoning", 0),
             "total_tokens": bucket["input"] + bucket["output"],
-            "estimated_cost_usd": round(cost_usd(bucket["input"], bucket["output"], "gpt-4o-mini"), 4),
+            "estimated_cost_usd": round(bucket.get("cost", 0.0), 4),
         }
 
 

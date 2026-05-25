@@ -43,3 +43,21 @@ def test_reasoning_tokens_recorded():
 def test_tracker_singleton_importable():
     from backend.llm.tracker import token_tracker
     assert token_tracker is not None
+
+
+def test_cost_accumulates_per_model():
+    """Mixed-model job: cost must reflect the actual model used per call.
+
+    Regresses if the tracker ever again hardcodes a single pricing model
+    in job_summary(). With per-task LLMTask routing, a single job easily
+    mixes gpt-4o-mini (cheap calls) with gpt-4o (the VIZ_DRAFT call).
+    """
+    from backend.llm.pricing import cost_usd
+    t = TokenUsageTracker(budget_per_job=10_000_000)
+    t.record("cheap", 1000, 1000, job_id="j_mix", model="gpt-4o-mini")
+    t.record("heavy", 1000, 1000, job_id="j_mix", model="gpt-4o")
+    expected = cost_usd(1000, 1000, "gpt-4o-mini") + cost_usd(1000, 1000, "gpt-4o")
+    s = t.job_summary("j_mix")
+    assert s["estimated_cost_usd"] == pytest.approx(round(expected, 4))
+    # A hardcoded-mini-only implementation would understate this ~16x.
+    assert s["estimated_cost_usd"] > 0.01
