@@ -5,13 +5,13 @@
 import { expect, test } from '@playwright/test';
 
 test('upload → topics → suggestions → build queued', async ({ page }) => {
-  await page.goto('/v2/');
+  await page.goto('/');
 
   // The actual upload uses real backend + LLM by default — too expensive for
   // CI. Run this manually with a short fixture .md when validating parity.
   const sample = '# Binary search\n\nBisects a sorted array.';
   const fileChooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: /upload/i }).first().click();
+  await page.getByLabel(/hackmd file/i).click();
   const chooser = await fileChooser;
   await chooser.setFiles({
     name: 'sample.md',
@@ -20,7 +20,7 @@ test('upload → topics → suggestions → build queued', async ({ page }) => {
     // TypeScript is satisfied without requiring @types/node.
     buffer: new TextEncoder().encode(sample),
   });
-  await page.getByRole('button', { name: /^upload$/i }).click();
+  await page.getByRole('button', { name: /analyze script/i }).click();
 
   await expect(page.getByText(/topics/i)).toBeVisible({ timeout: 30_000 });
 });

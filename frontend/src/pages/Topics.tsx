@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { JobState } from '../api/client';
 import { useJobPolling } from '../hooks/useJobPolling';
 
@@ -10,16 +11,29 @@ type Props = {
 };
 
 export function Topics({ job, onPickTopic, onError }: Props) {
-  // Poll if topics are not yet extracted
-  const shouldPoll = job.status !== 'topics_extracted';
-  const { job: polledJob, error } = useJobPolling(shouldPoll ? job.job_id : null, 1000);
+  // Track whether we have already seen topics_extracted so we can stop polling.
+  // A ref is mutable across renders without causing extra re-renders; it lets us
+  // pass the correct stop flag to useJobPolling without a circular dependency
+  // on the hook's own return value within the same render cycle.
+  const doneRef = useRef(job.status === 'topics_extracted');
 
-  if (error) {
-    onError(error);
+  const { job: polledJob, error } = useJobPolling(job.job_id, 1000, doneRef.current);
+
+  // Use polled job once available, otherwise fall back to the prop job.
+  const activeJob: JobState = polledJob ?? job;
+
+  // Update the ref synchronously so the next render (triggered by polledJob
+  // state change) will pass stop=true to the hook.
+  if (activeJob.status === 'topics_extracted') {
+    doneRef.current = true;
   }
 
-  // Use polled job once available, otherwise fall back to the prop job
-  const activeJob: JobState = (polledJob ?? job);
+  // Lift polling error into the App error banner via a side-effect (not at
+  // render time) so dismissing the banner doesn't immediately re-trigger it.
+  useEffect(() => {
+    if (error) onError(error);
+  }, [error, onError]);
+
   const isExtracted = activeJob.status === 'topics_extracted';
   const topics: ExtractedTopic[] = activeJob.topics ?? [];
 
