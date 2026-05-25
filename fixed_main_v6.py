@@ -144,29 +144,23 @@ TOKEN_BUDGET: int = int(os.getenv("TOKEN_BUDGET", "500000"))
 # prevent the model from re-emitting the entire codebase needlessly.
 LLM_FIX_MAX_TOKENS: int = 4096
 
-# Provider pricing (USD per 1K tokens) — used only for live cost reporting.
-# Update when rates change. Defaults are accurate as of writing.
-PRICE_PER_1K_TOKENS: dict[str, dict[str, float]] = {
-    # Standard chat models
-    "gpt-4o":            {"input": 0.0025,  "output": 0.010},
-    "gpt-4o-mini":       {"input": 0.00015, "output": 0.0006},
-    "gpt-4-turbo":       {"input": 0.010,   "output": 0.030},
-    "gpt-4.1":           {"input": 0.0020,  "output": 0.008},
-    "gpt-4.1-mini":      {"input": 0.00040, "output": 0.0016},
-    # Reasoning models — note: completion_tokens INCLUDES hidden reasoning tokens
-    "gpt-5":             {"input": 0.00125, "output": 0.010},
-    "gpt-5-mini":        {"input": 0.00025, "output": 0.0020},
-    "gpt-5-nano":        {"input": 0.00005, "output": 0.0004},
-    "o1":                {"input": 0.015,   "output": 0.060},
-    "o1-mini":           {"input": 0.0011,  "output": 0.0044},
-    "o3":                {"input": 0.010,   "output": 0.040},
-    "o3-mini":           {"input": 0.0011,  "output": 0.0044},
-    "o4-mini":           {"input": 0.0011,  "output": 0.0044},
-    # Gemini
-    "gemini-2.5-flash":  {"input": 0.0,     "output": 0.0},   # free tier — track tokens only
-    "gemini-1.5-pro":    {"input": 0.00125, "output": 0.005},
-    "gemini-1.5-flash":  {"input": 0.0,     "output": 0.0},
+# ───────────────────────────────────────────
+# LLM core — shared with the orchestrator (Stage 1 of modularization).
+# Pricing, reasoning-model detection, and error helpers live in backend.llm now.
+# ───────────────────────────────────────────
+from backend.llm import is_reasoning_model
+from backend.llm import LLMTask  # noqa: F401 — for Stage 2 call sites
+from backend.llm import PRICE_PER_1K as PRICE_PER_1K_TOKENS  # noqa: F401
+# NOTE: backend.llm.PRICE_PER_1K omits Gemini entries; they are present in
+# the import below for backward-compat token cost reporting on Gemini runs.
+# Stage 2 will add a Gemini-aware pricing table to backend.llm.pricing.
+_GEMINI_PRICES: dict[str, dict[str, float]] = {
+    "gemini-2.5-flash": {"input": 0.0,     "output": 0.0},
+    "gemini-1.5-pro":   {"input": 0.00125, "output": 0.005},
+    "gemini-1.5-flash": {"input": 0.0,     "output": 0.0},
 }
+# Merge so PRICE_PER_1K_TOKENS has full coverage (OpenAI + Gemini)
+PRICE_PER_1K_TOKENS = {**PRICE_PER_1K_TOKENS, **_GEMINI_PRICES}  # type: ignore[assignment]
 
 
 # ─── REASONING MODELS ──────────────────────────────────────────
@@ -178,12 +172,11 @@ PRICE_PER_1K_TOKENS: dict[str, dict[str, float]] = {
 #   - Accept optional `reasoning_effort`: "low" / "medium" / "high".
 #   - Do NOT accept `top_p`, `presence_penalty`, `frequency_penalty`, `logprobs`.
 
-_REASONING_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+from backend.llm import REASONING_PREFIXES as _REASONING_MODEL_PREFIXES  # noqa: F401
 
 def _is_reasoning_model(model_name: str) -> bool:
-    """True for OpenAI reasoning models that use the modified Chat Completions contract."""
-    name = (model_name or "").lower()
-    return any(name.startswith(p) for p in _REASONING_MODEL_PREFIXES)
+    """True for OpenAI reasoning models — delegates to backend.llm.is_reasoning_model."""
+    return is_reasoning_model(model_name)
 
 # Reasoning effort: low = cheaper/faster, high = more reasoning (more tokens, slower).
 # Read once at startup; default "low" keeps cost reasonable.
@@ -953,43 +946,7 @@ def status(stage: str, detail: str = "") -> None:
 
 
 
-def _extract_openai_error(exc: Exception) -> tuple[str | None, str | None]:
-    """Pull (code, message) out of an OpenAI APIStatusError body when present.
-
-    OpenAI errors look like:
-      {"error": {"message": "...", "type": "...", "param": null, "code": "model_not_found"}}
-
-    Returns (None, None) if the response body cannot be parsed. Always safe — never raises.
-    """
-    code: str | None = None
-    message: str | None = None
-
-    body = getattr(exc, "body", None)
-    if isinstance(body, dict):
-        err = body.get("error", {}) if isinstance(body.get("error"), dict) else {}
-        code = err.get("code") or body.get("code")
-        message = err.get("message") or body.get("message")
-
-    # Fallback to .response.json() for older SDKs
-    if code is None or message is None:
-        resp = getattr(exc, "response", None)
-        if resp is not None:
-            try:
-                payload = resp.json()
-                if isinstance(payload, dict):
-                    err2 = payload.get("error", {}) if isinstance(payload.get("error"), dict) else {}
-                    code = code or err2.get("code") or payload.get("code")
-                    message = message or err2.get("message") or payload.get("message")
-            except Exception:
-                pass
-
-    # Last resort — pluck from the exception message string itself
-    if message is None:
-        msg = getattr(exc, "message", None) or str(exc)
-        if msg:
-            message = msg[:300]
-
-    return code, message
+from backend.llm import extract_openai_error as _extract_openai_error  # noqa: F401
 
 
 def _init_client() -> OpenAI:
@@ -1440,11 +1397,16 @@ def llm_call(
     temperature: float = LLM_DEFAULT_TEMPERATURE,
     max_tokens: int = LLM_DEFAULT_MAX_TOKENS,
     step_label: str = "uncategorised",
+    task=None,  # optional LLMTask — Stage 2 will plumb this through
+    job_id=None,  # optional job_id for per-job token tracking
 ) -> str:
     """Single LLM call with cost tracking, error handling, and optional LangSmith tracing.
 
     The step_label is used to attribute token usage to a stage (e.g. "step1_generate",
     "step2_build_fix:1") so the per-step summary at the end is meaningful.
+
+    task and job_id are accepted for forward-compat with Stage 2 but not yet used
+    (existing call sites don't pass them; model selection still uses MODEL_NAME).
     """
     # Retryable HTTP status codes — transient server-side failures
     _RETRYABLE_STATUS = {429, 500, 502, 503, 504, 529}
