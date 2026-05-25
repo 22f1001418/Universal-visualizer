@@ -67,6 +67,7 @@ from backend.viz_generator.postprocess import (  # noqa: E402
     _inject_error_boundary,
 )
 from backend.config import settings              # noqa: E402
+from backend.api import health as _health        # noqa: E402
 
 
 # ─────────────────────────────────────────────
@@ -142,6 +143,8 @@ app.add_middleware(
     allow_credentials=False,
 )
 
+app.include_router(_health.router)
+
 
 # ─────────────────────────────────────────────
 # Startup / shutdown
@@ -165,21 +168,6 @@ def _on_startup() -> None:
             "[Startup] WARNING: fixed_main_v6.py not found. The /build endpoint will fail. "
             "Set FIXED_MAIN_PATH in .env to its absolute path."
         )
-
-
-# ─────────────────────────────────────────────
-# Health
-# ─────────────────────────────────────────────
-
-@app.get("/healthz", response_model=HealthResponse)
-def healthz() -> HealthResponse:
-    return HealthResponse(
-        ok=True,
-        fixed_main_path=str(FIXED_MAIN_PATH),
-        fixed_main_exists=FIXED_MAIN_PATH.exists(),
-        text_model=TEXT_MODEL,
-        output_dir=str(VIZ_OUTPUT_DIR),
-    )
 
 
 # ─────────────────────────────────────────────
