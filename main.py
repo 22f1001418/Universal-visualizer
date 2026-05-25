@@ -70,6 +70,7 @@ from backend.config import settings              # noqa: E402
 from backend.api import health as _health        # noqa: E402
 from backend.api import jobs as _jobs            # noqa: E402
 from backend.api import suggestions as _suggestions  # noqa: E402
+from backend.api import manifest as _manifest        # noqa: E402
 
 
 # ─────────────────────────────────────────────
@@ -148,6 +149,7 @@ app.add_middleware(
 app.include_router(_health.router)
 app.include_router(_jobs.router)
 app.include_router(_suggestions.router)
+app.include_router(_manifest.router)
 
 
 # ─────────────────────────────────────────────
@@ -381,70 +383,9 @@ def _run_build_task(job_id: str, topic_id: str) -> None:
     )
 
 
-def _build_manifest(job: JobState) -> list[EmbedManifestEntry]:
-    entries: list[EmbedManifestEntry] = []
-    for topic in job.topics:
-        task = job.builds.get(topic.id)
-        if task is None:
-            continue
-        # Look up the chosen suggestion title (if any)
-        viz_title = ""
-        if task.selected_suggestion_id:
-            sugs = job.suggestions.get(topic.id, [])
-            sug = next((s for s in sugs if s.id == task.selected_suggestion_id), None)
-            if sug:
-                viz_title = sug.title
-        if not viz_title and task.custom_notes:
-            viz_title = "Custom — " + task.custom_notes[:40]
-
-        entries.append(EmbedManifestEntry(
-            section=topic.section,
-            embed_after_sentence=topic.embed_after_sentence,
-            topic=topic.topic,
-            why_visual_helps=topic.why_visual_helps,
-            viz_title=viz_title,
-            viz_brief=task.final_viz_brief,
-            project_dir=task.project_dir,
-            screenshot_path=task.screenshot_path,
-            github_repo_url=task.github_repo_url if task.github_status == "published" else "",
-            status="ok" if task.phase == "completed" else "failed",
-        ))
-    return entries
-
-
 # ─────────────────────────────────────────────
-# 5. Final manifest
+# 5. Final manifest — moved to backend/api/manifest.py (Task 7)
 # ─────────────────────────────────────────────
-
-@app.get("/jobs/{job_id}/manifest")
-def get_manifest(job_id: str) -> dict:
-    try:
-        job = job_store.get_or_404(job_id)
-    except KeyError:
-        raise HTTPException(404, f"Job {job_id} not found")
-
-    # If the job hasn't built anything yet, return an empty manifest with a hint.
-    if not job.builds:
-        return {
-            "job_id": job_id,
-            "ready": False,
-            "message": "No builds have been triggered yet.",
-            "manifest": [],
-            "token_usage": token_tracker.job_summary(job_id),
-        }
-
-    pending = [tid for tid, b in job.builds.items() if b.phase not in ("completed", "failed")]
-    manifest = job.manifest or _build_manifest(job)
-
-    return {
-        "job_id": job_id,
-        "ready": len(pending) == 0,
-        "pending_builds": pending,
-        "status": job.status,
-        "manifest": [m.model_dump() for m in manifest],
-        "token_usage": token_tracker.job_summary(job_id),
-    }
-
 
 # ─────────────────────────────────────────────
 # 6. Preview screenshots / static files
