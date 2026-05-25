@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from backend.viz_generator.llm import llm_call
+from backend.llm import LLMTask
 
 log = logging.getLogger(__name__)
 
@@ -293,6 +294,7 @@ Reply with ONLY the category name, nothing else."""
                 temperature=1,
                 max_tokens=1000,
                 step_label="step0_classify",
+                task=LLMTask.VIZ_TOPIC_CLASSIFY,
             ).strip().lower()
         except SystemExit:
             raise

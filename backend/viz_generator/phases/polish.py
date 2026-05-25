@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from backend.llm import LLMTask
 from backend.viz_generator.llm import llm_call
 from backend.viz_generator.parsing import parse_files, format_files_for_prompt
 from backend.viz_generator.files import write_to_disk
@@ -57,6 +58,7 @@ Output FULL content of every changed file.
         ],
         temperature=1,
         step_label="step4_polish",
+        task=LLMTask.VIZ_POLISH,
     )
 
     fixed = parse_files(raw)

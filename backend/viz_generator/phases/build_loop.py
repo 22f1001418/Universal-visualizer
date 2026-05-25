@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from backend.llm import LLMTask
 from backend.viz_generator.llm import LLM_FIX_MAX_TOKENS, llm_call
 from backend.viz_generator.npm import _run_npm_install, _run_npm_build
 from backend.viz_generator.parsing import parse_files
@@ -109,6 +110,7 @@ SUMMARY: <one sentence describing what you changed and why>
             temperature=1,
             max_tokens=LLM_FIX_MAX_TOKENS,
             step_label=f"step2_build_fix:attempt_{attempt}",
+            task=LLMTask.VIZ_BUILD_FIX,
         )
 
         # Capture the LLM's own one-line summary for the next attempt's memory

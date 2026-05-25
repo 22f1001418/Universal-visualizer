@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from backend.llm import LLMTask
 from backend.viz_generator.llm import LLM_FIX_MAX_TOKENS, llm_call, status
 from backend.viz_generator.npm import _run_npm_build, _run_npm_install
 from backend.viz_generator.parsing import parse_files
@@ -99,6 +100,7 @@ SUMMARY: <one sentence describing what you changed>
                 temperature=1,
                 max_tokens=LLM_FIX_MAX_TOKENS,
                 step_label=f"step3_rebuild_fix:attempt_{attempt}",
+                task=LLMTask.VIZ_RUNTIME_FIX,
             )
 
             summary_match = re.search(r"^SUMMARY:\s*(.+)$", raw, re.MULTILINE)
@@ -195,6 +197,7 @@ SUMMARY: <one sentence describing what you changed>
             temperature=1,
             max_tokens=LLM_FIX_MAX_TOKENS,
             step_label=f"step3_semantic_fix:attempt_{attempt}",
+            task=LLMTask.VIZ_RUNTIME_FIX,
         )
 
         summary_match = re.search(r"^SUMMARY:\s*(.+)$", raw, re.MULTILINE)

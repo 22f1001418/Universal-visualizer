@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from backend.llm import LLMTask
 from backend.viz_generator.llm import LLM_DEFAULT_MAX_TOKENS, llm_call
 from backend.viz_generator.parsing import parse_files
 from backend.viz_generator.files import enforce_pinned_deps
@@ -79,6 +80,7 @@ Also produce these component files (src/components/):
         temperature=1,
         max_tokens=LLM_DEFAULT_MAX_TOKENS,
         step_label="step1_generate",
+        task=LLMTask.VIZ_DRAFT,
     )
 
     files = parse_files(raw)

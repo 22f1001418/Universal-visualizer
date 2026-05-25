@@ -74,6 +74,7 @@ log = logging.getLogger("viz_agent")
 # ───────────────────────────────────────────
 from backend.llm import is_reasoning_model
 from backend.llm import LLMTask  # noqa: F401 — for Stage 2 call sites
+from backend.llm import resolve_model
 from backend.llm import PRICE_PER_1K as PRICE_PER_1K_TOKENS  # noqa: F401
 from backend.llm import REASONING_PREFIXES as _REASONING_MODEL_PREFIXES  # noqa: F401
 from backend.llm import extract_openai_error as _extract_openai_error  # noqa: F401
@@ -331,7 +332,7 @@ def llm_call(
     temperature: float = LLM_DEFAULT_TEMPERATURE,
     max_tokens: int = LLM_DEFAULT_MAX_TOKENS,
     step_label: str = "uncategorised",
-    task=None,  # optional LLMTask — Stage 2 will plumb this through
+    task: "LLMTask | None" = None,
     job_id=None,  # optional job_id for per-job token tracking
 ) -> str:
     """Single LLM call with cost tracking, error handling, and optional LangSmith tracing.
@@ -339,8 +340,11 @@ def llm_call(
     The step_label is used to attribute token usage to a stage (e.g. "step1_generate",
     "step2_build_fix:1") so the per-step summary at the end is meaningful.
 
-    task and job_id are accepted for forward-compat with Stage 2 but not yet used
-    (existing call sites don't pass them; model selection still uses MODEL_NAME).
+    Stage 2: `task` (optional) — if set AND LLM_PROVIDER is openai, overrides the
+    model via resolve_model(task). For LLM_PROVIDER=gemini, task is ignored (Gemini
+    selects its model via MODEL_NAME env var).
+
+    job_id is accepted for forward-compat but not yet used.
     """
     # Retryable HTTP status codes — transient server-side failures
     _RETRYABLE_STATUS = {429, 500, 502, 503, 504, 529}
@@ -351,14 +355,23 @@ def llm_call(
     client = _get_client()
     last_exc: Exception | None = None
 
+    # ── Resolve model name ─────────────────────────────────────────────────────
+    # For OpenAI: if a task is declared, use resolve_model(task) so cheap calls
+    # drop to gpt-4o-mini while VIZ_DRAFT keeps gpt-4o. Fall back to MODULE_NAME
+    # (the global default) when task is None or provider is Gemini.
+    if task is not None and LLM_PROVIDER == "openai":
+        openai_model = resolve_model(task)
+    else:
+        openai_model = MODEL_NAME  # existing behaviour
+
     # ── Build kwargs based on model family ────────────────────────────
     # Reasoning models (gpt-5*, o1*, o3*, o4*) reject `temperature` and `max_tokens`
     # and require `max_completion_tokens` instead. They also accept `reasoning_effort`.
     create_kwargs: dict = {
-        "model":    MODEL_NAME,
+        "model":    openai_model,
         "messages": messages,
     }
-    if _is_reasoning_model(MODEL_NAME):
+    if _is_reasoning_model(openai_model):
         create_kwargs["max_completion_tokens"] = max_tokens
         create_kwargs["reasoning_effort"] = REASONING_EFFORT
         # Note: temperature is intentionally OMITTED — reasoning models reject it.
@@ -416,12 +429,12 @@ def llm_call(
 
             elif exc.status_code == 403 and err_code == "model_not_found":
                 # This is the case the user hit earlier with gpt-4o.
-                log.error("[ERROR] 403 — your project has no access to model '%s'.", MODEL_NAME)
+                log.error("[ERROR] 403 — your project has no access to model '%s'.", openai_model)
                 log.error("  Cause: %s", err_message)
                 log.error("  Fix options:")
                 log.error("    1. Use a model your project does have access to:")
                 log.error("       MODEL_NAME=gpt-4o-mini  (default-enabled on all paid accounts)")
-                log.error("    2. Enable %s in your project:", MODEL_NAME)
+                log.error("    2. Enable %s in your project:", openai_model)
                 log.error("       https://platform.openai.com/settings/organization/projects")
 
             elif exc.status_code == 403 and err_code == "account_deactivated":
@@ -441,7 +454,7 @@ def llm_call(
                 log.error("  It is NOT necessarily a billing issue.")
 
             elif exc.status_code == 404 or err_code == "model_not_found":
-                log.error("[ERROR] %d — model '%s' not found.", exc.status_code, MODEL_NAME)
+                log.error("[ERROR] %d — model '%s' not found.", exc.status_code, openai_model)
                 if err_message:
                     log.error("  Detail: %s", err_message)
                 if LLM_PROVIDER == "gemini":
@@ -465,7 +478,7 @@ def llm_call(
                 "happening on '%s'. Waiting %.0fs before retry.",
                 attempt, _MAX_RETRIES,
                 float(os.getenv("LLM_CLIENT_TIMEOUT", "600")),
-                MODEL_NAME, delay,
+                openai_model, delay,
             )
             time.sleep(delay)
             last_exc = exc
@@ -541,7 +554,7 @@ def llm_call(
     # ── Diagnose truly None content ───────────────────────────────────────────
     if raw_content is None:
         log.error("[ERROR] LLM returned None content for step '%s'.", step_label)
-        log.error("  Model         : %s", MODEL_NAME)
+        log.error("  Model         : %s", openai_model)
         log.error("  Provider      : %s", LLM_PROVIDER)
         log.error("  finish_reason : %s", finish_reason)
         log.error("  Message obj   : %s", choice.message)
@@ -600,7 +613,7 @@ def llm_call(
                 "  [Reasoning] hidden=%d  visible=%d  ratio=%.0f%% reasoning  (model=%s, effort=%s)",
                 reasoning_t, visible,
                 (reasoning_t / out_t * 100) if out_t else 0,
-                MODEL_NAME, REASONING_EFFORT,
+                openai_model, REASONING_EFFORT,
             )
     else:
         log.debug("  [Tokens] usage info missing from response — not recorded")
