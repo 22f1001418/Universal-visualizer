@@ -179,15 +179,14 @@ def test_subprocess_exception_marks_failed():
     assert job.status == JobStatus.FAILED
 
 
-def test_github_publish_called_on_success_when_enabled(monkeypatch):
-    """When settings.publish_to_github=True and GITHUB_TOKEN is set,
+def test_github_publish_called_on_success_when_enabled():
+    """When settings.publish_to_github=True and settings.github_token is set,
     publish_viz_repo should be called once."""
     job_id, topic_id = _seed_job()
 
-    monkeypatch.setenv("GITHUB_TOKEN", "ghp_faketoken")
-
     mock_settings = MagicMock()
     mock_settings.publish_to_github = True
+    mock_settings.github_token = "ghp_faketoken"
     mock_settings.github_include_dist = True
     mock_settings.github_repos_private = False
 
@@ -220,13 +219,12 @@ def test_github_publish_called_on_success_when_enabled(monkeypatch):
 
 
 def test_github_skipped_when_token_not_set(monkeypatch):
-    """When GITHUB_TOKEN is absent, github_status should be 'skipped'."""
+    """When settings.github_token is None/empty, github_status should be 'skipped'."""
     job_id, topic_id = _seed_job()
-
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
     mock_settings = MagicMock()
     mock_settings.publish_to_github = True
+    mock_settings.github_token = None   # simulate missing GITHUB_TOKEN
 
     with (
         patch(_PATCH_RUN_VIZ, return_value=_make_success_result()),
@@ -243,15 +241,14 @@ def test_github_skipped_when_token_not_set(monkeypatch):
     assert "GITHUB_TOKEN" in task.github_error
 
 
-def test_github_failure_does_not_crash_build(monkeypatch):
+def test_github_failure_does_not_crash_build():
     """If publish_viz_repo raises, the build should still complete (phase=completed)
     and github_status should be 'failed'."""
     job_id, topic_id = _seed_job()
 
-    monkeypatch.setenv("GITHUB_TOKEN", "ghp_faketoken")
-
     mock_settings = MagicMock()
     mock_settings.publish_to_github = True
+    mock_settings.github_token = "ghp_faketoken"
     mock_settings.github_include_dist = True
     mock_settings.github_repos_private = False
 

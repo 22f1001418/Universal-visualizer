@@ -22,6 +22,8 @@ import subprocess
 import sys
 import threading
 import time
+
+from backend.config import settings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -134,11 +136,11 @@ def build_static_viz(project_dir: str) -> StaticBuildInfo:
 
 
 # ── Config ──────────────────────────────────────────────
-PORT_RANGE_START = int(os.getenv("DEV_SERVER_PORT_START", "5180"))
-PORT_RANGE_END   = int(os.getenv("DEV_SERVER_PORT_END",   "5230"))
-PREVIEW_BOOT_WAIT = int(os.getenv("PREVIEW_BOOT_WAIT", "45"))   # seconds — vite cold start
-NPM_INSTALL_TIMEOUT = int(os.getenv("NPM_INSTALL_TIMEOUT", "300"))
-AUDIT_FIX_ENABLED = os.getenv("AUDIT_FIX_ENABLED", "false").lower() in ("1", "true", "yes")
+PORT_RANGE_START = settings.dev_server_port_start
+PORT_RANGE_END   = settings.dev_server_port_end
+PREVIEW_BOOT_WAIT = settings.preview_boot_wait        # seconds — vite cold start
+NPM_INSTALL_TIMEOUT = settings.npm_install_timeout
+AUDIT_FIX_ENABLED = settings.audit_fix_enabled
 DEV_SERVER_LOG_NAME = ".dev-server.log"
 
 

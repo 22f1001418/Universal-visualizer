@@ -20,13 +20,14 @@ from __future__ import annotations
 
 import base64
 import logging
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 import requests
+
+from backend.config import settings
 
 logger = logging.getLogger("hackmd-orch.github")
 
@@ -57,7 +58,7 @@ def _log(on_log: LogFn, msg: str) -> None:
 
 def _h() -> dict[str, str]:
     """Build auth headers. Reads GITHUB_TOKEN at call time, not import time."""
-    token = os.getenv("GITHUB_TOKEN", "").strip()
+    token = settings.github_token
     if not token:
         raise RuntimeError("GITHUB_TOKEN env var not set — cannot publish to GitHub")
     return {
@@ -99,7 +100,7 @@ def _resolve_owner(on_log: LogFn) -> Owner:
       1. GITHUB_OWNER env var (auto-detect user vs org via /users/{name})
       2. Authenticated user via /user
     """
-    override = os.getenv("GITHUB_OWNER", "").strip()
+    override = settings.github_owner
     if override:
         r = requests.get(f"{GITHUB_API}/users/{override}", headers=_h(), timeout=10)
         if r.status_code != 200:

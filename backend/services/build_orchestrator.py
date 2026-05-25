@@ -10,7 +10,6 @@ Was previously _run_build_task in main.py.
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -113,7 +112,7 @@ def run_build_task(job_id: str, topic_id: str) -> None:
 
     # ── Publish the viz to its own standalone GitHub repo ──
     if result.success and result.project_dir and settings.publish_to_github:
-        if not os.getenv("GITHUB_TOKEN", "").strip():
+        if not settings.github_token:
             task.github_status = "skipped"
             task.github_error = "GITHUB_TOKEN not set"
             on_log("[GitHub] skipped — GITHUB_TOKEN not set")

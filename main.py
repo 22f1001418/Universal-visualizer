@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 import sys
 import uuid
@@ -113,9 +112,9 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 
 # When True (default if GITHUB_TOKEN is set), every successful build pushes the
 # generated viz to its own standalone GitHub repo. One repo per build.
-PUBLISH_TO_GITHUB = os.getenv("PUBLISH_TO_GITHUB", "true").lower() in ("1", "true", "yes")
-GITHUB_INCLUDE_DIST = os.getenv("GITHUB_INCLUDE_DIST", "true").lower() in ("1", "true", "yes")
-GITHUB_REPOS_PRIVATE = os.getenv("GITHUB_REPOS_PRIVATE", "false").lower() in ("1", "true", "yes")
+PUBLISH_TO_GITHUB = settings.publish_to_github
+GITHUB_INCLUDE_DIST = settings.github_include_dist
+GITHUB_REPOS_PRIVATE = settings.github_repos_private
 
 
 # ─────────────────────────────────────────────
@@ -128,12 +127,9 @@ app = FastAPI(
     version="1.0.0",
 )
 
-origins_raw = os.getenv("ALLOWED_ORIGINS", "http://127.0.0.1:8001,http://localhost:8001")
-origins = [o.strip() for o in origins_raw.split(",") if o.strip()]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=False,
@@ -198,6 +194,4 @@ def _on_startup() -> None:
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "8001"))
-    host = os.getenv("HOST", "0.0.0.0")
-    uvicorn.run("main:app", host=host, port=port, reload=False)
+    uvicorn.run("main:app", host=settings.host, port=settings.port, reload=False)

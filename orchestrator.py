@@ -16,6 +16,8 @@ import os
 import re
 import subprocess
 import sys
+
+from backend.config import settings
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -28,25 +30,15 @@ logger = logging.getLogger("hackmd-orch.runner")
 # ──────────────────────────────────────────────
 
 # Path to the viz-generator CLI. Override via FIXED_MAIN_PATH in .env.
-FIXED_MAIN_PATH = Path(
-    os.getenv(
-        "FIXED_MAIN_PATH",
-        str(Path(__file__).resolve().parent / "fixed_main_v6.py"),
-    )
-).resolve()
+FIXED_MAIN_PATH = Path(settings.fixed_main_path).resolve()
 
 # Where the generated Vite projects should be created.
 # fixed_main_v6.py creates them in cwd, so we cd into VIZ_OUTPUT_DIR before running.
-VIZ_OUTPUT_DIR = Path(
-    os.getenv(
-        "VIZ_OUTPUT_DIR",
-        str(Path(__file__).resolve().parent / "viz_outputs"),
-    )
-).resolve()
+VIZ_OUTPUT_DIR = Path(settings.viz_output_dir).resolve()
 VIZ_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Max seconds the build is allowed to run end-to-end.
-BUILD_TIMEOUT_SECONDS = int(os.getenv("BUILD_TIMEOUT_SECONDS", "1200"))   # 20 min default
+BUILD_TIMEOUT_SECONDS = settings.build_timeout_seconds
 
 
 # ──────────────────────────────────────────────
