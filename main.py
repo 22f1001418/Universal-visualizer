@@ -69,6 +69,7 @@ from backend.viz_generator.postprocess import (  # noqa: E402
 from backend.config import settings              # noqa: E402
 from backend.api import health as _health        # noqa: E402
 from backend.api import jobs as _jobs            # noqa: E402
+from backend.api import suggestions as _suggestions  # noqa: E402
 
 
 # ─────────────────────────────────────────────
@@ -146,6 +147,7 @@ app.add_middleware(
 
 app.include_router(_health.router)
 app.include_router(_jobs.router)
+app.include_router(_suggestions.router)
 
 
 # ─────────────────────────────────────────────
@@ -176,56 +178,6 @@ def _on_startup() -> None:
 # 3. Suggestions for one topic
 # ─────────────────────────────────────────────
 
-@app.post("/jobs/{job_id}/topics/{topic_id}/suggestions")
-async def get_topic_suggestions(job_id: str, topic_id: str) -> dict:
-    """Run Agent B for one extracted topic. Returns 5 viz suggestions.
-
-    Cached on the JobState — calling twice for the same topic_id reuses the
-    first response so the user can flip back and forth in the UI for free.
-    """
-    try:
-        job = job_store.get_or_404(job_id)
-    except KeyError:
-        raise HTTPException(404, f"Job {job_id} not found")
-
-    topic = next((t for t in job.topics if t.id == topic_id), None)
-    if topic is None:
-        raise HTTPException(404, f"Topic {topic_id} not in job {job_id}")
-
-    # Cache hit?
-    if topic_id in job.suggestions and job.suggestions[topic_id]:
-        return {
-            "job_id": job_id,
-            "topic_id": topic_id,
-            "topic": topic.model_dump(),
-            "suggestions": [s.model_dump() for s in job.suggestions[topic_id]],
-            "cached": True,
-        }
-
-    status("SUGGEST", f"job_id={job_id}  topic_id={topic_id}  topic={topic.topic[:60]}")
-
-    try:
-        result: VizSuggestionsResult = await asyncio.to_thread(
-            viz_suggestion_agent, topic, job.track, job_id,
-        )
-    except RuntimeError as e:
-        logger.exception("[Suggest] Agent B failed")
-        raise HTTPException(500, f"Viz suggestion agent failed: {e}")
-
-    # Persist
-    job.suggestions[topic_id] = result.suggestions
-    job_store.update(job_id, suggestions=job.suggestions)
-    job_store.append_log(
-        job_id, f"Agent B produced {len(result.suggestions)} suggestions for {topic_id}",
-    )
-
-    return {
-        "job_id": job_id,
-        "topic_id": topic_id,
-        "topic": topic.model_dump(),
-        "suggestions": [s.model_dump() for s in result.suggestions],
-        "cached": False,
-    }
 
 
 # ─────────────────────────────────────────────
