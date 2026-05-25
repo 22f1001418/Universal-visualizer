@@ -22,5 +22,4 @@ def mount_routers(app: FastAPI) -> None:
     app.include_router(manifest.router)
     app.include_router(preview.router)
     app.include_router(spa.router)
-    from backend.api.spa import mount_v2
-    mount_v2(app)
+    spa.mount_v2(app)
