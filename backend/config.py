@@ -49,7 +49,11 @@ class Settings(BaseSettings):
     model_viz_runtime: str | None = None
     model_viz_polish: str | None = None
 
-    # Budgets
+    # Budgets — orchestrator-side cap on tokens per job in the FastAPI app.
+    # NOTE: the viz subprocess has a SEPARATE budget — TOKEN_BUDGET (default
+    # 500_000) read directly via os.getenv in backend/viz_generator/llm.py.
+    # The two budgets guard different code paths and are intentionally
+    # decoupled until the viz generator's config migration in a later stage.
     token_budget_per_job: int = 300_000
 
 

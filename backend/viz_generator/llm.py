@@ -582,7 +582,7 @@ def llm_call(
     if finish_reason == "length":
         log.warning("[WARN] Response truncated — model hit max_tokens limit (%d).", max_tokens)
         log.warning("  Output is incomplete (missing closing braces / files).")
-        log.warning("  Fix: increase LLM_DEFAULT_MAX_TOKENS in main.py.")
+        log.warning("  Fix: increase LLM_DEFAULT_MAX_TOKENS in backend/viz_generator/llm.py.")
 
     # ── Token tracking ────────────────────────────────────────────────────────
     if r.usage is not None:

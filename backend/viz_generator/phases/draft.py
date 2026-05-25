@@ -2,8 +2,9 @@
 project from the topic + brief.
 
 The most expensive LLM call in the viz pipeline — generates ~10-30 files
-of React/TypeScript in one shot. Stage 2 Task 13 will add
-task=LLMTask.VIZ_DRAFT routing so this defaults to gpt-4o.
+of React/TypeScript in one shot. Tagged with task=LLMTask.VIZ_DRAFT so
+the OpenAI branch routes to gpt-4o by default (override via
+MODEL_VIZ_DRAFT env var).
 """
 from __future__ import annotations
 
