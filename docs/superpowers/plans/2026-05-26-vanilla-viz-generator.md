@@ -17,7 +17,7 @@
 The plan is grouped into 8 phases that can mostly be executed in order. The new generator modules (validator, prompts, files, draft, polish, cli) are built and unit-tested **before** any old file is deleted, so the codebase stays runnable through most of the plan. The "delete old files" tasks come near the end, paired with `import-linter` and test-suite runs to catch dangling references.
 
 Phase 1: Models + config + LLMTask cleanup (additive, no behavior change)
-Phase 2: Build the new viz-generator modules end-to-end (TDD)
+Phase 2: Build the new viz-generator modules end-to-end (TDD) — includes the `events.py` structured-logging helper used by draft/polish/validator
 Phase 3: Rewrite the `cli.py` orchestrator
 Phase 4: Update backend orchestrator + build_orchestrator to use the new phase names + drop postprocess hooks
 Phase 5: Rewrite `github_publisher.py` for monorepo + Pages
@@ -393,17 +393,32 @@ def test_validator_captures_pageerror(project_dir: Path):
     assert result.screenshot_path == ""
 
 
-def test_validator_captures_console_error(project_dir: Path):
+def test_validator_logs_console_error_but_passes_by_default(project_dir: Path):
+    """console.error is noisy (many libs / devtools log non-fatal warnings here).
+    It is captured for diagnostics but does NOT fail validation in default mode.
+    Use VALIDATOR_STRICT_CONSOLE=1 to make it fatal."""
     html = """<!doctype html><html lang="en"><head><meta charset="UTF-8"></head>
     <body><div>boot</div>
-    <script>console.error("logged-error-marker")</script>
+    <script>console.error("logged-noise")</script>
     </body></html>"""
     result = validate(html, project_dir)
+    assert result.success is True
+    # Warning surfaced on the result for diagnostics
+    assert "logged-noise" in result.warnings
+
+
+def test_validator_fails_on_console_error_in_strict_mode(project_dir: Path, monkeypatch):
+    monkeypatch.setenv("VALIDATOR_STRICT_CONSOLE", "1")
+    html = """<!doctype html><html lang="en"><head><meta charset="UTF-8"></head>
+    <body><div>x</div><script>console.error("strict-fail")</script></body></html>"""
+    result = validate(html, project_dir)
     assert result.success is False
-    assert "logged-error-marker" in result.error_log
+    assert "strict-fail" in result.error_log
 
 
 def test_validator_rejects_empty_body(project_dir: Path):
+    """Catch blank pages via DOM presence + innerText, not bounding_box.
+    bounding_box races init JS and times out spuriously."""
     html = """<!doctype html><html lang="en"><head><meta charset="UTF-8"></head>
     <body></body></html>"""
     result = validate(html, project_dir)
@@ -445,22 +460,32 @@ Create `backend/viz_generator/validator.py`:
 ```python
 """Single-launch Playwright validator + screenshot for a vanilla HTML viz.
 
-The fix-loop policy (one iteration max) lives in `phases/draft.py`; this
-module exposes a pure check. On success we write screenshot.png alongside
-index.html in project_dir. On failure we capture pageerror + console.error
-text into error_log and return without taking a screenshot.
+Severity model:
+  • pageerror (uncaught exception) → FATAL: the viz crashed.
+  • console.error → WARNING by default: many libs / devtools log non-fatal
+    noise to console.error. Surface it in `warnings` for diagnostics but
+    don't fail. Set env VALIDATOR_STRICT_CONSOLE=1 to make it fatal.
+  • Empty / minimal-content body → FATAL: catches blank pages.
+
+We check DOM presence + non-empty innerText rather than bounding_box —
+bounding_box can race init JS and time out spuriously on slow renders.
+The fix-loop policy (one iteration max) lives in `phases/draft.py`.
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
 log = logging.getLogger("viz_agent")
 
 PAGE_GOTO_TIMEOUT_MS: int = 10_000
-NETWORKIDLE_TIMEOUT_MS: int = 10_000
 VIEWPORT = {"width": 1280, "height": 800}
+
+# Minimum body innerHTML length to consider the page non-empty. Catches
+# bodies that contain only whitespace, comments, or a stray <noscript>.
+MIN_BODY_HTML_LEN: int = 30
 
 
 @dataclass(frozen=True)
@@ -468,14 +493,15 @@ class ValidationResult:
     success: bool
     error_log: str = ""
     screenshot_path: str = ""
+    warnings: str = ""   # non-fatal diagnostics (e.g. console.error in default mode)
+
+
+def _strict_console() -> bool:
+    return os.getenv("VALIDATOR_STRICT_CONSOLE", "").strip() in ("1", "true", "yes")
 
 
 def validate(html: str, project_dir: Path) -> ValidationResult:
-    """Load `html` in Chromium, capture errors, screenshot on success.
-
-    Writes html to `project_dir/index.html` first (Playwright needs a file
-    URL). On success, also writes `project_dir/screenshot.png` at 1280x800.
-    """
+    """Load `html` in Chromium, capture errors, screenshot on success."""
     project_dir.mkdir(parents=True, exist_ok=True)
     html_path = project_dir / "index.html"
     html_path.write_text(html, encoding="utf-8")
@@ -483,6 +509,8 @@ def validate(html: str, project_dir: Path) -> ValidationResult:
     from playwright.sync_api import sync_playwright
 
     errors: list[str] = []
+    warnings: list[str] = []
+    strict = _strict_console()
     screenshot_path = project_dir / "screenshot.png"
 
     with sync_playwright() as p:
@@ -491,12 +519,17 @@ def validate(html: str, project_dir: Path) -> ValidationResult:
             context = browser.new_context(viewport=VIEWPORT)
             page = context.new_page()
 
+            # pageerror → fatal. The viz crashed at runtime.
             page.on("pageerror", lambda exc: errors.append(f"pageerror: {exc}"))
-            page.on(
-                "console",
-                lambda msg: errors.append(f"console.error: {msg.text}")
-                if msg.type == "error" else None,
-            )
+
+            def _on_console(msg):
+                if msg.type == "error":
+                    line = f"console.error: {msg.text}"
+                    (errors if strict else warnings).append(line)
+                elif msg.type == "warning":
+                    warnings.append(f"console.warning: {msg.text}")
+
+            page.on("console", _on_console)
 
             try:
                 page.goto(
@@ -507,18 +540,31 @@ def validate(html: str, project_dir: Path) -> ValidationResult:
             except Exception as exc:
                 errors.append(f"navigation: {exc}")
 
-            # Semantic assertion: <body> must have at least one rendered child
-            # with a non-null bounding box. Catches blank pages where the LLM
-            # produced no body content or where init JS crashed before render.
+            # DOM presence + text check. Cheaper and more robust than
+            # bounding_box (which races init JS and can time out).
             try:
-                box = page.locator("body *").first.bounding_box(timeout=2_000)
-                if box is None:
-                    errors.append("empty body: no visible elements")
+                body_html = page.evaluate(
+                    "document.body ? document.body.innerHTML.trim() : ''"
+                )
+                body_text = page.evaluate(
+                    "document.body ? document.body.innerText.trim() : ''"
+                )
+                if not body_html:
+                    errors.append("empty body: <body> has no children")
+                elif len(body_html) < MIN_BODY_HTML_LEN and len(body_text) < 5:
+                    errors.append(
+                        f"empty body: minimal content "
+                        f"(html={len(body_html)} chars, text={len(body_text)} chars)"
+                    )
             except Exception as exc:
-                errors.append(f"empty body / locator error: {exc}")
+                errors.append(f"DOM read error: {exc}")
 
             if errors:
-                return ValidationResult(success=False, error_log="\n".join(errors))
+                return ValidationResult(
+                    success=False,
+                    error_log="\n".join(errors),
+                    warnings="\n".join(warnings),
+                )
 
             page.screenshot(path=str(screenshot_path), full_page=False)
         finally:
@@ -528,6 +574,7 @@ def validate(html: str, project_dir: Path) -> ValidationResult:
         success=True,
         error_log="",
         screenshot_path=str(screenshot_path),
+        warnings="\n".join(warnings),
     )
 ```
 
@@ -615,20 +662,20 @@ from __future__ import annotations
 UNIVERSAL_SYSTEM_PROMPT = """You are a senior front-end developer building \
 interactive educational visualizations for a single-screen embed.
 
-OUTPUT FORMAT (hard requirements — any deviation is a failure)
-- Output ONLY the HTML document. No prose before or after. No code fences.
+OUTPUT FORMAT (enforced by automated validation — non-conformant output is rejected)
+- Output the HTML document directly. No surrounding prose, no code fences.
 - Exactly ONE file named index.html. All CSS lives in a <style> tag inside <head>.
   All JavaScript lives in a <script> tag at the end of <body>.
-- NO external resources: no <script src="https://...">, no <link rel="stylesheet" \
+- No external resources: no <script src="https://...">, no <link rel="stylesheet" \
 href="https://...">, no <img src="https://...">, no @import url(...), no fonts \
 from Google/CDN. The page must work fully offline from a file:// URL.
 - Required head elements: <!doctype html>, <html lang="en">, \
 <meta charset="UTF-8">, <meta name="viewport" content="width=device-width, \
 initial-scale=1.0">, <title>.
-- The visualization must render meaningful content in <body> without any user \
-interaction (the validator takes a screenshot on first load).
-- Do not throw uncaught exceptions or log to console.error on init — the \
-validator treats both as failure.
+- The visualization must render meaningful content in <body> on first paint \
+without any user interaction (a screenshot is taken on load).
+- Don't throw uncaught exceptions on init (the validator treats pageerror as \
+fatal). Avoid console.error on init when possible.
 
 DESIGN LANGUAGE
 - Define CSS custom properties on :root for the palette, type scale, spacing \
@@ -689,8 +736,9 @@ git commit -m "feat(viz): rewrite prompts.py as vanilla HTML/CSS/JS design langu
 
 ### Task 8: Slim `files.py` — `write_html_to_disk` + `extract_html`
 
-The old `files.py` validates filepaths, pins package.json deps, handles a multi-file dict. We replace it with two small helpers:
+The old `files.py` validates filepaths, pins package.json deps, handles a multi-file dict. We replace it with three small helpers + the existing log formatter:
 - `extract_html(raw: str) -> str` — strip optional ```html fence and trim.
+- `pre_validate_html(html: str) -> list[str]` — cheap structural checks (missing tags, truncation, empty `<script>`) so we can skip the ~2-3s Chromium launch for obvious failures.
 - `write_html_to_disk(project_dir, html)` — write `index.html`, refuse empty.
 - Keep `print_error_block` (the build/runtime loops will be deleted but the new draft phase still uses it for nice error rendering).
 
@@ -712,6 +760,7 @@ import pytest
 
 from backend.viz_generator.files import (
     extract_html,
+    pre_validate_html,
     write_html_to_disk,
     print_error_block,
 )
@@ -742,6 +791,41 @@ def test_extract_html_strips_leading_and_trailing_whitespace():
 def test_extract_html_raises_when_no_html_found():
     with pytest.raises(ValueError, match="no html"):
         extract_html("sorry, I cannot help with that")
+
+
+# ── pre_validate_html ────────────────────────────────────────────────────
+
+def test_pre_validate_passes_for_valid_html():
+    html = "<!doctype html><html lang=\"en\"><body><div>x</div></body></html>"
+    from backend.viz_generator.files import pre_validate_html
+    assert pre_validate_html(html) == []
+
+
+def test_pre_validate_flags_missing_html_tag():
+    from backend.viz_generator.files import pre_validate_html
+    problems = pre_validate_html("<!doctype><body>x</body>")
+    assert any("html" in p.lower() for p in problems)
+
+
+def test_pre_validate_flags_missing_body_tag():
+    from backend.viz_generator.files import pre_validate_html
+    problems = pre_validate_html("<!doctype html><html></html>")
+    assert any("body" in p.lower() for p in problems)
+
+
+def test_pre_validate_flags_truncation():
+    from backend.viz_generator.files import pre_validate_html
+    # Long HTML that ends mid-script (no </body>/</html>)
+    truncated = "<!doctype html><html><body><div>x</div><script>function foo(){ return " + "a" * 500
+    problems = pre_validate_html(truncated)
+    assert any("truncat" in p.lower() for p in problems)
+
+
+def test_pre_validate_flags_empty_script():
+    from backend.viz_generator.files import pre_validate_html
+    html = "<!doctype html><html><body><div>x</div><script></script></body></html>"
+    problems = pre_validate_html(html)
+    assert any("empty <script>" in p for p in problems)
 
 
 # ── write_html_to_disk ───────────────────────────────────────────────────
@@ -787,11 +871,10 @@ Overwrite [backend/viz_generator/files.py](../../../backend/viz_generator/files.
 ```python
 """On-disk file helpers for the vanilla viz generator.
 
+extract_html strips optional ```html``` code fences from the LLM response.
+pre_validate_html runs cheap structural checks before we pay for Chromium.
 write_html_to_disk writes the single index.html for a viz.
-extract_html strips optional ```html``` code fences from the LLM response
-and returns the bare HTML string.
-print_error_block is the small log formatter used by the draft/polish
-phases to render error output legibly.
+print_error_block formats error blocks for the viz_agent logger.
 """
 from __future__ import annotations
 
@@ -812,6 +895,14 @@ _HTML_FENCE_RE = re.compile(
 # fail loudly when the LLM apologizes or returns Markdown instead of HTML.
 _LOOKS_HTML_RE = re.compile(r"<(?:!doctype|html|body)\b", re.IGNORECASE)
 
+# Window at the end of the document we scan for a closing tag — truncated
+# generations stop mid-token and leave neither </body> nor </html>.
+_TRUNCATION_TAIL_LEN: int = 400
+
+# Catches `<script>` followed only by whitespace before `</script>`. An
+# empty inline script is almost always a sign the LLM ran out of tokens.
+_EMPTY_SCRIPT_RE = re.compile(r"<script[^>]*>\s*</script>", re.IGNORECASE)
+
 
 def extract_html(raw: str) -> str:
     """Return the HTML body of the LLM's response.
@@ -827,6 +918,29 @@ def extract_html(raw: str) -> str:
     if not _LOOKS_HTML_RE.search(s):
         raise ValueError("no html detected in LLM output")
     return s
+
+
+def pre_validate_html(html: str) -> list[str]:
+    """Fast structural checks; returns problem descriptions (empty = OK).
+
+    Cheap pre-flight before the validator launches Chromium. Catches the
+    common LLM failure modes (truncation, missing required tags, empty
+    inline scripts) so we don't pay browser-startup cost on a generation
+    that can't possibly work.
+    """
+    problems: list[str] = []
+    s = html.strip()
+    low = s.lower()
+    if "<html" not in low:
+        problems.append("missing <html> tag")
+    if "<body" not in low:
+        problems.append("missing <body> tag")
+    tail = low[-_TRUNCATION_TAIL_LEN:]
+    if "</body>" not in tail and "</html>" not in tail:
+        problems.append("appears truncated (no closing </body> or </html> near end)")
+    if _EMPTY_SCRIPT_RE.search(s):
+        problems.append("empty <script> tag (likely truncated mid-generation)")
+    return problems
 
 
 def write_html_to_disk(project_dir: Path, html: str) -> None:
@@ -868,6 +982,109 @@ Expected: PASS (9 tests).
 ```bash
 git add backend/viz_generator/files.py tests/unit/viz_generator/test_files.py
 git commit -m "refactor(viz): slim files.py to extract_html + write_html_to_disk for vanilla pipeline"
+```
+
+---
+
+### Task 8.5: Structured event logger (`events.py`)
+
+A small helper for structured (JSON) log events. Human-readable logs stay
+on the `viz_agent` logger; structured events go to `viz_agent.events` so
+they can be parsed downstream (Loki / Datadog / `jq` on local files).
+
+**Files:**
+- Create: `backend/viz_generator/events.py`
+- Test: `tests/unit/viz_generator/test_events.py`
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/unit/viz_generator/test_events.py`:
+
+```python
+"""Locks the structured-event payload shape used by draft/polish/validator."""
+import json
+import logging
+
+import pytest
+
+from backend.viz_generator.events import log_event
+
+
+def test_log_event_emits_parseable_json(caplog):
+    caplog.set_level(logging.INFO, logger="viz_agent.events")
+    log_event("draft", "success", attempts=2, topic="x")
+    records = [r for r in caplog.records if r.name == "viz_agent.events"]
+    assert len(records) == 1
+    msg = records[0].getMessage()
+    assert msg.startswith("VIZ_EVENT ")
+    payload = json.loads(msg[len("VIZ_EVENT "):])
+    assert payload == {
+        "phase": "draft", "event": "success", "attempts": 2, "topic": "x",
+    }
+
+
+def test_log_event_serialises_non_json_values(caplog):
+    """dataclasses, Paths, etc. — use default=str to never raise."""
+    from pathlib import Path
+    caplog.set_level(logging.INFO, logger="viz_agent.events")
+    log_event("validate", "preflight_fail", path=Path("/tmp/x"), count=0)
+    rec = [r for r in caplog.records if r.name == "viz_agent.events"][-1]
+    payload = json.loads(rec.getMessage()[len("VIZ_EVENT "):])
+    assert payload["path"] == "/tmp/x"
+    assert payload["count"] == 0
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/unit/viz_generator/test_events.py -v`
+Expected: FAIL with `ModuleNotFoundError`.
+
+- [ ] **Step 3: Write the module**
+
+Create `backend/viz_generator/events.py`:
+
+```python
+"""Structured (JSON) event logging for the viz pipeline.
+
+Human-readable progress logs stay on the `viz_agent` logger. Structured
+events (phase transitions, error categories, attempt counts) go to
+`viz_agent.events` and are emitted as one-line JSON so downstream log
+ingestion can index / aggregate them.
+
+Usage:
+    from backend.viz_generator.events import log_event
+    log_event("draft", "success", attempts=2)
+    log_event("validate", "preflight_fail", problems=["missing <body>"])
+"""
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+log = logging.getLogger("viz_agent.events")
+
+
+def log_event(phase: str, event: str, **fields: Any) -> None:
+    """Emit a single JSON event line on the viz_agent.events logger.
+
+    `default=str` ensures dataclasses / Paths / datetimes serialise without
+    raising — log calls must never crash the pipeline.
+    """
+    payload = {"phase": phase, "event": event, **fields}
+    log.info("VIZ_EVENT %s", json.dumps(payload, default=str))
+```
+
+- [ ] **Step 4: Run tests**
+
+Run: `pytest tests/unit/viz_generator/test_events.py -v`
+Expected: PASS (2 tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/viz_generator/events.py tests/unit/viz_generator/test_events.py
+git commit -m "feat(viz): structured JSON event logger for phase transitions"
 ```
 
 ---
@@ -1010,19 +1227,24 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+import os
+
 from backend.llm import LLMTask
-from backend.viz_generator.files import extract_html, print_error_block
+from backend.viz_generator.events import log_event
+from backend.viz_generator.files import (
+    extract_html, pre_validate_html, print_error_block,
+)
 from backend.viz_generator.llm import llm_call
 from backend.viz_generator.prompts import UNIVERSAL_SYSTEM_PROMPT
 from backend.viz_generator.validator import ValidationResult, validate
 
 log = logging.getLogger("viz_agent")
 
-# Per-call output budget. The whole vanilla viz typically fits well under
-# this; truncation at this limit means the LLM tried to over-generate and
-# we should fail loudly rather than ship a half-file.
-MODEL_VIZ_DRAFT_MAX_TOKENS: int = 16_000
-MODEL_VIZ_FIX_MAX_TOKENS: int = 8_000
+# Per-call output budget. A single-file vanilla viz typically lands at 2-5k
+# output tokens; 6k is comfortable headroom. Truncation at this limit means
+# we should fail fast rather than ship a half-file. Override via env.
+MODEL_VIZ_DRAFT_MAX_TOKENS: int = int(os.getenv("MODEL_VIZ_DRAFT_MAX_TOKENS", "6000"))
+MODEL_VIZ_FIX_MAX_TOKENS: int = int(os.getenv("MODEL_VIZ_FIX_MAX_TOKENS", "3000"))
 
 
 @dataclass(frozen=True)
@@ -1081,28 +1303,46 @@ system prompt. No prose. No code fences."""
     return extract_html(raw)
 
 
+def _validate_with_preflight(html: str, project_dir: Path) -> ValidationResult:
+    """Run cheap pre-flight checks; only launch Chromium if they pass.
+
+    Saves ~2-3s of browser startup on obviously-broken generations
+    (truncation, missing tags, empty <script>).
+    """
+    problems = pre_validate_html(html)
+    if problems:
+        msg = "pre-validate: " + "; ".join(problems)
+        log_event("validate", "preflight_fail", problems=problems)
+        return ValidationResult(success=False, error_log=msg)
+    return validate(html, project_dir)
+
+
 def run_draft_phase(topic: str, brief: str, project_dir: Path) -> DraftResult:
     """Generate + validate the initial viz. One fix-loop iteration on failure."""
     log.info("[draft] generating initial HTML for '%s'...", topic)
+    log_event("draft", "start", topic=topic)
     html = _llm_call_draft(topic, brief)
 
     log.info("[validate] first attempt...")
-    result = validate(html, project_dir)
+    result = _validate_with_preflight(html, project_dir)
     if result.success:
         log.info("  ✅ draft validated on first attempt.")
+        log_event("draft", "success", attempts=1)
         return DraftResult(
             success=True, html=html, attempts=1,
             screenshot_path=result.screenshot_path,
         )
 
     print_error_block("Draft validation errors", result.error_log)
+    log_event("draft", "fix_iteration", error=result.error_log[:200])
     log.info("[draft] running one fix iteration...")
     html_fixed = _llm_call_fix(topic, html, result.error_log)
 
     log.info("[validate] post-fix attempt...")
-    result2 = validate(html_fixed, project_dir)
+    result2 = _validate_with_preflight(html_fixed, project_dir)
     if result2.success:
         log.info("  ✅ draft validated after one fix iteration.")
+        log_event("draft", "success", attempts=2)
         return DraftResult(
             success=True, html=html_fixed, attempts=2,
             screenshot_path=result2.screenshot_path,
@@ -1110,6 +1350,7 @@ def run_draft_phase(topic: str, brief: str, project_dir: Path) -> DraftResult:
 
     log.info("  ❌ draft failed after one fix iteration.")
     print_error_block("Post-fix validation errors", result2.error_log)
+    log_event("draft", "failed", attempts=2, error=result2.error_log[:200])
     return DraftResult(
         success=False, html=html_fixed, attempts=2,
         error_log=result2.error_log,
@@ -1143,8 +1384,10 @@ Create `tests/unit/viz_generator/phases/test_polish.py`:
 ```python
 """Unit tests for phases.polish.run_polish_phase.
 
-LLM + validator mocked. Verifies the fallback-on-regress contract: if
-polish breaks the viz, we ship the pre-polish HTML, not the broken one.
+LLM + validator mocked. Verifies two fallback paths:
+  (1) validation regresses → ship pre-polish HTML
+  (2) structural integrity regresses (buttons/inputs stripped) → ship
+      pre-polish HTML even when validation passes
 """
 from __future__ import annotations
 
@@ -1157,8 +1400,25 @@ from backend.viz_generator.phases.polish import run_polish_phase, PolishResult
 from backend.viz_generator.validator import ValidationResult
 
 
-PRE_HTML = "<!doctype html><html><body>pre</body></html>"
-POST_HTML = "<!doctype html><html><body>polished</body></html>"
+PRE_HTML = (
+    "<!doctype html><html><body>"
+    "<button>Play</button><button>Step</button><button>Reset</button>"
+    "<input type='range' />"
+    "<div id='viz'>pre</div>"
+    "</body></html>"
+)
+POST_HTML_KEEPS_CONTROLS = (
+    "<!doctype html><html><body>"
+    "<button>Play</button><button>Step</button><button>Reset</button>"
+    "<input type='range' />"
+    "<div id='viz'>polished</div>"
+    "</body></html>"
+)
+POST_HTML_DROPS_CONTROLS = (
+    "<!doctype html><html><body>"
+    "<div id='viz'>shiny but stripped</div>"
+    "</body></html>"
+)
 
 
 @pytest.fixture
@@ -1169,7 +1429,7 @@ def project_dir(tmp_path: Path) -> Path:
 def test_polish_succeeds_and_returns_polished_html(project_dir: Path):
     with patch(
         "backend.viz_generator.phases.polish._llm_call_polish",
-        return_value=POST_HTML,
+        return_value=POST_HTML_KEEPS_CONTROLS,
     ), patch(
         "backend.viz_generator.phases.polish.validate",
         return_value=ValidationResult(success=True, screenshot_path="x"),
@@ -1177,7 +1437,7 @@ def test_polish_succeeds_and_returns_polished_html(project_dir: Path):
         result = run_polish_phase("topic", PRE_HTML, project_dir)
 
     assert isinstance(result, PolishResult)
-    assert result.html == POST_HTML
+    assert result.html == POST_HTML_KEEPS_CONTROLS
     assert result.polished is True
     assert result.fallback_used is False
     mock_validate.assert_called_once()
@@ -1186,7 +1446,7 @@ def test_polish_succeeds_and_returns_polished_html(project_dir: Path):
 def test_polish_falls_back_to_pre_polish_when_validation_regresses(project_dir: Path):
     with patch(
         "backend.viz_generator.phases.polish._llm_call_polish",
-        return_value=POST_HTML,
+        return_value=POST_HTML_KEEPS_CONTROLS,
     ), patch(
         "backend.viz_generator.phases.polish.validate",
         return_value=ValidationResult(success=False, error_log="polish broke it"),
@@ -1197,6 +1457,23 @@ def test_polish_falls_back_to_pre_polish_when_validation_regresses(project_dir: 
     assert result.polished is False
     assert result.fallback_used is True
     assert "polish broke it" in result.error_log
+
+
+def test_polish_falls_back_when_structural_integrity_regresses(project_dir: Path):
+    """Even if validation passes, dropping >40% of buttons/inputs is a regress."""
+    with patch(
+        "backend.viz_generator.phases.polish._llm_call_polish",
+        return_value=POST_HTML_DROPS_CONTROLS,
+    ), patch(
+        "backend.viz_generator.phases.polish.validate",
+        return_value=ValidationResult(success=True, screenshot_path="x"),
+    ):
+        result = run_polish_phase("topic", PRE_HTML, project_dir)
+
+    assert result.html == PRE_HTML
+    assert result.polished is False
+    assert result.fallback_used is True
+    assert "structural" in result.error_log.lower() or "buttons" in result.error_log.lower()
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1211,16 +1488,27 @@ Overwrite [backend/viz_generator/phases/polish.py](../../../backend/viz_generato
 ```python
 """Polish phase: one LLM call refines the working HTML's visual design.
 
-After polish we re-validate once. If polish broke the viz, we fall back to
-the pre-polish HTML (we'd rather ship an unpolished working viz than fail).
+Two fallback paths after the polished HTML comes back:
+  1. Re-validate. If validation fails, ship pre-polish HTML.
+  2. Structural integrity check (button/input counts must not drop by
+     more than INTEGRITY_DROP_LIMIT). Catches the case where polish
+     "passes validation" but quietly strips functionality.
+
+Limitation: neither check detects pure aesthetic regression (worse colors,
+worse layout that still works). Real fix requires a vision LLM judge or
+manual review. Manual review is built into the plan (Task 22). A vision
+judge is a follow-up.
 """
 from __future__ import annotations
 
 import logging
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from backend.llm import LLMTask
+from backend.viz_generator.events import log_event
 from backend.viz_generator.files import extract_html, write_html_to_disk
 from backend.viz_generator.llm import llm_call
 from backend.viz_generator.prompts import POLISH_RUBRIC, UNIVERSAL_SYSTEM_PROMPT
@@ -1228,15 +1516,35 @@ from backend.viz_generator.validator import validate
 
 log = logging.getLogger("viz_agent")
 
-MODEL_VIZ_POLISH_MAX_TOKENS: int = 16_000
+MODEL_VIZ_POLISH_MAX_TOKENS: int = int(os.getenv("MODEL_VIZ_POLISH_MAX_TOKENS", "6000"))
+
+# Max fraction of buttons/inputs polish is allowed to drop without
+# triggering a fallback. 0.4 = if post has < 60% of pre's controls, revert.
+INTEGRITY_DROP_LIMIT: float = 0.4
 
 
 @dataclass(frozen=True)
 class PolishResult:
     html: str            # final HTML actually written to disk
-    polished: bool       # True if the polished HTML validated cleanly
-    fallback_used: bool  # True if we reverted to pre_html after a regress
+    polished: bool       # True if the polished HTML cleared validation + integrity
+    fallback_used: bool  # True if we reverted to pre_html
     error_log: str = ""
+
+
+def _count_tag(tag: str, html: str) -> int:
+    return len(re.findall(rf"<{tag}\b", html, re.IGNORECASE))
+
+
+def _structural_integrity_problem(pre_html: str, post_html: str) -> str:
+    """Return a problem description if polish stripped too much; else ''."""
+    for tag in ("button", "input"):
+        pre = _count_tag(tag, pre_html)
+        if pre == 0:
+            continue
+        post = _count_tag(tag, post_html)
+        if post / pre < (1 - INTEGRITY_DROP_LIMIT):
+            return f"structural regression: {tag}s dropped {pre} -> {post}"
+    return ""
 
 
 def _llm_call_polish(topic: str, pre_html: str) -> str:
@@ -1262,24 +1570,37 @@ Output the complete polished HTML document only. No prose. No code fences."""
 
 
 def run_polish_phase(topic: str, pre_html: str, project_dir: Path) -> PolishResult:
-    """Refine pre_html visually, re-validate, fall back to pre_html on regress."""
+    """Refine pre_html visually; fall back to pre_html on validation OR structural regress."""
     log.info("[polish] refining design for '%s'...", topic)
+    log_event("polish", "start", topic=topic)
     polished_html = _llm_call_polish(topic, pre_html)
 
     log.info("[polish] re-validating polished HTML...")
     result = validate(polished_html, project_dir)
-    if result.success:
-        log.info("  ✅ polish applied + validated.")
-        return PolishResult(html=polished_html, polished=True, fallback_used=False)
 
-    log.info("  ⚠️  polish regressed validation — reverting to pre-polish HTML.")
-    # Rewrite pre_html to disk so screenshot.png stays in sync with what we ship.
+    if not result.success:
+        reason = f"validation: {result.error_log}"
+        log.info("  ⚠️  polish regressed validation — reverting to pre-polish HTML.")
+        return _fallback_to_pre(pre_html, project_dir, reason)
+
+    integrity_problem = _structural_integrity_problem(pre_html, polished_html)
+    if integrity_problem:
+        log.info("  ⚠️  polish %s — reverting to pre-polish HTML.", integrity_problem)
+        return _fallback_to_pre(pre_html, project_dir, integrity_problem)
+
+    log.info("  ✅ polish applied + validated + structurally intact.")
+    log_event("polish", "success")
+    return PolishResult(html=polished_html, polished=True, fallback_used=False)
+
+
+def _fallback_to_pre(pre_html: str, project_dir: Path, reason: str) -> PolishResult:
+    """Rewrite pre_html to disk + re-screenshot so the shipped state is consistent."""
+    log_event("polish", "fallback", reason=reason[:200])
     write_html_to_disk(project_dir, pre_html)
-    # Re-screenshot the working HTML so disk reflects the final shipped state.
     validate(pre_html, project_dir)
     return PolishResult(
         html=pre_html, polished=False, fallback_used=True,
-        error_log=result.error_log,
+        error_log=reason,
     )
 ```
 
@@ -2748,20 +3069,28 @@ After writing the plan, I checked it against the spec:
 - §1 architecture (new file layout) → Phases 2, 5, 7.
 - §2.1 draft phase + hard constraints → Tasks 7 (prompts), 9 (draft phase).
 - §2.2 validate + screenshot single launch → Tasks 5, 6 (validator.py).
-- §2.3 polish phase + fallback on regress → Task 10.
+- §2.3 polish phase + fallback on regress → Task 10 (validation regress + structural integrity regress).
 - §2.4 publish phase → Tasks 15, 16.
 - §2.5 phase enum rename → Tasks 2, 12, 13, 14, 17.
 - §3 github_publisher rewrite (all subsections) → Tasks 15, 16. Concurrency retry covered in Task 15 test + Task 16 `_push_subdir_commit` retry loop.
 - §4 migration (file deletes, .importlinter, manifests) → Tasks 18, 19. (`.importlinter` unchanged; spec said no changes needed — verified.)
-- §5 testing strategy → Tasks 5/6/7/8/9/10/13/14/15/21. Old test deletes in Task 18.
-- §6 risks → addressed in Task 22 (prompt iteration) and explicit retry handling in Task 16.
+- §5 testing strategy → Tasks 5/6/7/8/8.5/9/10/13/14/15/21. Old test deletes in Task 18.
+- §6 risks → addressed in Task 22 (prompt iteration), retry handling in Task 16, and the polish structural integrity check in Task 10.
 - §7 implementation phasing — one PR — entire plan is one branch.
 
-**Known deviation from spec:**
+**Design decisions beyond the spec (added during review):**
+- **Validator severity model.** `pageerror` is fatal; `console.error` is logged as a warning by default (libraries / devtools commonly log non-fatal noise there), with `VALIDATOR_STRICT_CONSOLE=1` opt-in for fail-on-console-error. Semantic emptiness checked via `document.body.innerHTML` + `innerText` rather than `bounding_box()` — the latter races init JS and times out spuriously.
+- **Pre-flight HTML check** (Task 8 `pre_validate_html`) catches truncation / missing tags / empty `<script>` before paying ~2-3s of Chromium startup. Reduces wall-clock on doomed generations.
+- **Token budgets** dropped from 16k/8k/16k to 6k/3k/6k (draft/fix/polish). A single-file vanilla viz lands at 2-5k output; the old caps were over-provisioned and hid slow LLM hangs. All three are env-overridable.
+- **Structural integrity check** in polish (Task 10): counts of `<button>` / `<input>` may not drop by more than 40% post-polish. Catches the case where polish silently strips controls but still validates. Does NOT detect pure aesthetic regression — that requires a vision LLM judge (deferred follow-up).
+- **Prompt tone** (Task 7): "any deviation is a failure" softened to "enforced by automated validation." Philosophy is to give the LLM tools (validator, structural check, pre-validate) rather than depend on LLM compliance through prompt threats.
+- **Structured event logging** (Task 8.5 `events.py`): JSON events on `viz_agent.events` for phase / attempt / error-category aggregation. Human-readable progress logs unchanged on `viz_agent`.
+
+**Known deviations from spec:**
 - Spec §4.1 lists `backend/viz_generator/llm.py` for deletion. We DEFER it (documented in Task 18). The new draft/polish phases still import `llm_call` and the token tracker from there, and the consolidation into `backend/llm/` is a larger refactor that warrants its own plan (multi-provider Gemini path, etc.). Recommended follow-up: "consolidate viz_generator/llm.py into backend/llm/".
 - Spec mentions the `responses` library for HTTP mocking. We used `unittest.mock.patch` on `requests` to match the existing test style and avoid adding a dev dep.
 - Spec §5.5 says "no CI changes." Confirmed — no CI files touched.
 
 **Placeholder/ambiguity check:** every step has explicit code, exact file paths, and concrete commands. The polish-on-no-flag default is resolved by Task 12 (orchestrator passes `--polish`).
 
-**Type consistency:** `ValidationResult`, `DraftResult`, `PolishResult`, `PublishResult`, `BuildPhase`, and `Owner` are each defined once and referenced consistently across tests and call sites. The `embed_url`/`repo_edit_url`/`monorepo_name` triple is added to `BuildTask` (Task 3), populated by the publisher (Task 13/16), serialized into the manifest (Task 14), and is consumed by the SPA's existing manifest renderer (no SPA change needed beyond labels).
+**Type consistency:** `ValidationResult` (with new `warnings: str` field), `DraftResult`, `PolishResult`, `PublishResult`, `BuildPhase`, and `Owner` are each defined once and referenced consistently across tests and call sites. The `embed_url`/`repo_edit_url`/`monorepo_name` triple is added to `BuildTask` (Task 3), populated by the publisher (Task 13/16), serialized into the manifest (Task 14), and is consumed by the SPA's existing manifest renderer (no SPA change needed beyond labels).
