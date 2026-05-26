@@ -1,160 +1,101 @@
-"""Unit tests for backend.viz_generator.files."""
+"""Unit tests for the slim vanilla-viz file helpers."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 from backend.viz_generator.files import (
-    ALLOWED_FILE_EXTENSIONS,
-    ERROR_DISPLAY_MAX_LINES,
-    _validate_filepath,
-    enforce_pinned_deps,
-    write_to_disk,
+    extract_html,
+    pre_validate_html,
+    write_html_to_disk,
+    print_error_block,
 )
 
 
-# ---------------------------------------------------------------------------
-# _validate_filepath
-# ---------------------------------------------------------------------------
+# ── extract_html ─────────────────────────────────────────────────────────
 
-def test_validate_filepath_rejects_traversal(tmp_path):
-    with pytest.raises(ValueError, match="Path traversal blocked"):
-        _validate_filepath(tmp_path, "../../../etc/passwd")
+def test_extract_html_passes_raw_doctype_through():
+    raw = "<!doctype html><html lang=\"en\"><body>x</body></html>"
+    assert extract_html(raw) == raw
 
 
-def test_validate_filepath_accepts_normal_path(tmp_path):
-    p = _validate_filepath(tmp_path, "src/App.jsx")
-    # _validate_filepath calls .resolve() internally so the returned path
-    # is also resolved (on macOS /tmp → /private/tmp)
-    assert p == (tmp_path / "src" / "App.jsx").resolve()
+def test_extract_html_strips_html_codefence():
+    raw = "```html\n<!doctype html><html><body>x</body></html>\n```"
+    assert extract_html(raw) == "<!doctype html><html><body>x</body></html>"
 
 
-def test_validate_filepath_accepts_root_level_file(tmp_path):
-    p = _validate_filepath(tmp_path, "index.html")
-    assert p == (tmp_path / "index.html").resolve()
+def test_extract_html_strips_unlabeled_codefence():
+    raw = "```\n<!doctype html><html><body>x</body></html>\n```"
+    assert extract_html(raw) == "<!doctype html><html><body>x</body></html>"
 
 
-def test_validate_filepath_rejects_disallowed_extension(tmp_path):
-    with pytest.raises(ValueError, match="Disallowed file extension"):
-        _validate_filepath(tmp_path, "src/script.sh")
+def test_extract_html_strips_leading_and_trailing_whitespace():
+    raw = "   \n<!doctype html><html><body>x</body></html>\n   "
+    assert extract_html(raw) == "<!doctype html><html><body>x</body></html>"
 
 
-def test_validate_filepath_allowed_extensions_cover_expected_types(tmp_path):
-    for ext in (".tsx", ".ts", ".jsx", ".js", ".css", ".html", ".json"):
-        p = _validate_filepath(tmp_path, f"src/file{ext}")
-        assert p.suffix == ext
+def test_extract_html_raises_when_no_html_found():
+    with pytest.raises(ValueError, match="no html"):
+        extract_html("sorry, I cannot help with that")
 
 
-# ---------------------------------------------------------------------------
-# enforce_pinned_deps
-# ---------------------------------------------------------------------------
+# ── pre_validate_html ────────────────────────────────────────────────────
 
-def test_enforce_pinned_deps_strips_caret(tmp_path):
-    files = {
-        "package.json": json.dumps({"dependencies": {"react": "^18.0.0"}}),
-    }
-    out = enforce_pinned_deps(files)
-    pkg = json.loads(out["package.json"])
-    assert pkg["dependencies"]["react"] == "18.0.0"
+def test_pre_validate_passes_for_valid_html():
+    html = "<!doctype html><html lang=\"en\"><body><div>x</div></body></html>"
+    assert pre_validate_html(html) == []
 
 
-def test_enforce_pinned_deps_strips_tilde(tmp_path):
-    files = {
-        "package.json": json.dumps({"dependencies": {"vite": "~4.3.0"}}),
-    }
-    out = enforce_pinned_deps(files)
-    pkg = json.loads(out["package.json"])
-    assert pkg["dependencies"]["vite"] == "4.3.0"
+def test_pre_validate_flags_missing_html_tag():
+    problems = pre_validate_html("<!doctype><body>x</body>")
+    assert any("html" in p.lower() for p in problems)
 
 
-def test_enforce_pinned_deps_strips_gte_range():
-    files = {
-        "package.json": json.dumps({"dependencies": {"lodash": ">=4.0.0"}}),
-    }
-    out = enforce_pinned_deps(files)
-    pkg = json.loads(out["package.json"])
-    assert pkg["dependencies"]["lodash"] == "4.0.0"
+def test_pre_validate_flags_missing_body_tag():
+    problems = pre_validate_html("<!doctype html><html></html>")
+    assert any("body" in p.lower() for p in problems)
 
 
-def test_enforce_pinned_deps_no_package_json_unchanged():
-    files = {"src/App.jsx": "// app"}
-    out = enforce_pinned_deps(files)
-    assert out == files
+def test_pre_validate_flags_truncation():
+    # Long HTML that ends mid-script (no </body>/</html>)
+    truncated = "<!doctype html><html><body><div>x</div><script>function foo(){ return " + "a" * 500
+    problems = pre_validate_html(truncated)
+    assert any("truncat" in p.lower() for p in problems)
 
 
-def test_enforce_pinned_deps_invalid_json_unchanged():
-    files = {"package.json": "NOT JSON"}
-    out = enforce_pinned_deps(files)
-    assert out == files
+def test_pre_validate_flags_empty_script():
+    html = "<!doctype html><html><body><div>x</div><script></script></body></html>"
+    problems = pre_validate_html(html)
+    assert any("empty <script>" in p for p in problems)
 
 
-def test_enforce_pinned_deps_preserves_non_package_files():
-    files = {
-        "package.json": json.dumps({"dependencies": {"react": "^18.0.0"}}),
-        "src/App.jsx": "// app",
-    }
-    out = enforce_pinned_deps(files)
-    assert out["src/App.jsx"] == "// app"
+# ── write_html_to_disk ───────────────────────────────────────────────────
+
+def test_write_html_to_disk_writes_index_html(tmp_path: Path):
+    html = "<!doctype html><html><body>x</body></html>"
+    write_html_to_disk(tmp_path, html)
+    assert (tmp_path / "index.html").read_text(encoding="utf-8") == html
 
 
-def test_enforce_pinned_deps_handles_dev_dependencies():
-    files = {
-        "package.json": json.dumps({
-            "dependencies": {"react": "^18.0.0"},
-            "devDependencies": {"typescript": "^5.0.0"},
-        }),
-    }
-    out = enforce_pinned_deps(files)
-    pkg = json.loads(out["package.json"])
-    assert pkg["devDependencies"]["typescript"] == "5.0.0"
+def test_write_html_to_disk_creates_project_dir(tmp_path: Path):
+    target = tmp_path / "new-sub"
+    write_html_to_disk(target, "<!doctype html><html><body>x</body></html>")
+    assert (target / "index.html").exists()
 
 
-# ---------------------------------------------------------------------------
-# write_to_disk
-# ---------------------------------------------------------------------------
-
-def test_write_to_disk_creates_files(tmp_path):
-    files = {
-        "src/App.jsx": "export default function App() {}",
-        "index.html": "<!DOCTYPE html>",
-    }
-    write_to_disk(tmp_path, files)
-    assert (tmp_path / "src" / "App.jsx").exists()
-    assert (tmp_path / "index.html").exists()
+def test_write_html_to_disk_rejects_empty(tmp_path: Path):
+    with pytest.raises(ValueError, match="empty"):
+        write_html_to_disk(tmp_path, "")
+    with pytest.raises(ValueError, match="empty"):
+        write_html_to_disk(tmp_path, "   \n\n   ")
 
 
-def test_write_to_disk_creates_src_directory(tmp_path):
-    files = {"src/App.jsx": "// app"}
-    write_to_disk(tmp_path, files)
-    assert (tmp_path / "src").is_dir()
+# ── print_error_block ────────────────────────────────────────────────────
 
-
-def test_write_to_disk_redirects_misplaced_root_file(tmp_path):
-    # D10: if LLM outputs "src/index.html", it should land at root/index.html
-    files = {"src/index.html": "<!DOCTYPE html>"}
-    write_to_disk(tmp_path, files)
-    assert (tmp_path / "index.html").exists()
-    assert not (tmp_path / "src" / "index.html").exists()
-
-
-def test_write_to_disk_skips_traversal_filenames(tmp_path):
-    files = {"../../../etc/passwd": "evil"}
-    write_to_disk(tmp_path, files)
-    # No file should be created outside tmp_path
-    assert not Path("/etc/passwd").exists() or Path("/etc/passwd").read_text() != "evil"
-
-
-# ---------------------------------------------------------------------------
-# Constants sanity checks
-# ---------------------------------------------------------------------------
-
-def test_error_display_max_lines_is_positive():
-    assert ERROR_DISPLAY_MAX_LINES > 0
-
-
-def test_allowed_file_extensions_contains_jsx():
-    assert ".jsx" in ALLOWED_FILE_EXTENSIONS
-    assert ".tsx" in ALLOWED_FILE_EXTENSIONS
-    assert ".json" in ALLOWED_FILE_EXTENSIONS
+def test_print_error_block_runs_without_raising(caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="viz_agent")
+    print_error_block("Demo error", "line one\nline two\nline three")
+    # Should have emitted at least one log record with the label
+    assert any("Demo error" in rec.message for rec in caplog.records)
