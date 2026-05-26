@@ -81,11 +81,11 @@ class VizSuggestionsResult(BaseModel):
 
 BuildPhase = Literal[
     "queued",
-    "step1_generate",
-    "step2_build",
-    "step3_runtime",
-    "step4_polish",
-    "completed",
+    "draft",
+    "validate",
+    "polish",
+    "publish",
+    "done",
     "failed",
 ]
 
