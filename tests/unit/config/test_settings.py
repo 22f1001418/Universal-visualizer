@@ -113,3 +113,18 @@ def test_build_timeout_override(monkeypatch):
     from backend.config import Settings
     s = Settings()
     assert s.build_timeout_seconds == 600
+
+
+def test_viz_monorepo_name_defaults_to_empty_string(monkeypatch):
+    """The setting must exist with a safe empty default; callers raise if used unset."""
+    monkeypatch.delenv("VIZ_MONOREPO_NAME", raising=False)
+    from backend.config import Settings
+    s = Settings()
+    assert s.viz_monorepo_name == ""
+
+
+def test_viz_monorepo_name_from_env(monkeypatch):
+    monkeypatch.setenv("VIZ_MONOREPO_NAME", "lecture-visualizations")
+    from backend.config import Settings
+    s = Settings()
+    assert s.viz_monorepo_name == "lecture-visualizations"

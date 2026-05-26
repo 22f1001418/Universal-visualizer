@@ -23,7 +23,7 @@ def _make_topic(idx: int) -> ExtractedTopic:
     )
 
 
-def _make_build(topic_id: str, phase: str = "completed") -> BuildTask:
+def _make_build(topic_id: str, phase: str = "done") -> BuildTask:
     return BuildTask(
         id=f"build_{topic_id}",
         topic_id=topic_id,
@@ -39,12 +39,12 @@ def _make_build(topic_id: str, phase: str = "completed") -> BuildTask:
 
 def _fixture_job(num_topics: int, completed_indices: list[int]) -> JobState:
     """Build a JobState with N topics; only the indices in completed_indices
-    have BuildTasks in the 'completed' phase."""
+    have BuildTasks in the 'done' phase."""
     topics = [_make_topic(i) for i in range(num_topics)]
     builds: dict[str, BuildTask] = {}
     for i in completed_indices:
         topic_id = f"topic_{i}"
-        builds[topic_id] = _make_build(topic_id, phase="completed")
+        builds[topic_id] = _make_build(topic_id, phase="done")
     return JobState(
         job_id="test-job-1",
         script_name="test_script.md",
@@ -88,12 +88,12 @@ def test_manifest_includes_failed_builds_with_failed_status():
     assert out[0].status == "failed"
 
 
-def test_manifest_non_completed_non_failed_is_status_failed():
-    # Any phase other than "completed" maps to status="failed".
+def test_manifest_non_done_non_failed_is_status_failed():
+    # Any phase other than "done" maps to status="failed".
     job = _fixture_job(num_topics=1, completed_indices=[])
     topic_id = "topic_0"
     job.topics = [_make_topic(0)]
-    job.builds[topic_id] = _make_build(topic_id, phase="step2_build")
+    job.builds[topic_id] = _make_build(topic_id, phase="draft")
     out = build_manifest(job)
     assert len(out) == 1
     assert out[0].status == "failed"
@@ -151,3 +151,35 @@ def test_manifest_multiple_topics_ordering():
     assert out[0].topic == "Topic 0"
     assert out[1].topic == "Topic 1"
     assert out[2].topic == "Topic 2"
+
+
+def test_manifest_includes_embed_url_when_published():
+    from backend.models import BuildTask
+
+    job = _fixture_job(num_topics=1, completed_indices=[0])
+    topic_id = "topic_0"
+    build = job.builds[topic_id]
+    build.github_status = "published"
+    build.github_repo_url = "https://github.com/u/m"
+    build.embed_url = "https://u.github.io/m/t/"
+    build.repo_edit_url = "https://github.com/u/m/tree/main/t"
+    entries = build_manifest(job)
+    assert len(entries) == 1
+    e = entries[0]
+    assert e.embed_url == "https://u.github.io/m/t/"
+    assert e.repo_edit_url == "https://github.com/u/m/tree/main/t"
+    assert e.status == "ok"
+
+
+def test_manifest_embed_url_empty_when_not_published():
+    """If github_status is not 'published', embed_url + repo_edit_url should be blanked
+    in the manifest entry even if the BuildTask has them set."""
+    job = _fixture_job(num_topics=1, completed_indices=[0])
+    topic_id = "topic_0"
+    build = job.builds[topic_id]
+    build.github_status = "failed"
+    build.embed_url = "https://u.github.io/m/t/"
+    build.repo_edit_url = "https://github.com/u/m/tree/main/t"
+    entries = build_manifest(job)
+    assert entries[0].embed_url == ""
+    assert entries[0].repo_edit_url == ""

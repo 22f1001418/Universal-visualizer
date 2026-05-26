@@ -1,14 +1,12 @@
 """Unit tests for backend.services.build_orchestrator.run_build_task.
 
-External systems (run_viz_build, github_publisher, postprocess helpers) are
-mocked. The goal is to verify that phase transitions and JobState mutations
-happen correctly under each branch (success, build failure, github disabled).
+External systems (run_viz_build, github_publisher) are mocked. The goal is to
+verify that phase transitions and JobState mutations happen correctly under each
+branch (success, build failure, github disabled).
 
 Mocking strategy:
   - backend.services.build_orchestrator.run_viz_build  — the subprocess wrapper
-  - backend.services.build_orchestrator.publish_viz_repo — GitHub publishing
-  - backend.services.build_orchestrator._patch_vite_config_base — postprocess
-  - backend.services.build_orchestrator._inject_error_boundary  — postprocess
+  - backend.services.build_orchestrator.publish_viz_to_monorepo — GitHub publishing
   - backend.services.build_orchestrator.settings  — to control publish_to_github flag
 
 run_build_task is a plain synchronous function so no async runner is needed.
@@ -102,9 +100,7 @@ def _make_failed_result() -> SimpleNamespace:
 _MOD = "backend.services.build_orchestrator"
 
 _PATCH_RUN_VIZ    = f"{_MOD}.run_viz_build"
-_PATCH_PUBLISH    = f"{_MOD}.publish_viz_repo"
-_PATCH_VITE_PATCH = f"{_MOD}._patch_vite_config_base"
-_PATCH_ERR_BOUND  = f"{_MOD}._inject_error_boundary"
+_PATCH_PUBLISH    = f"{_MOD}.publish_viz_to_monorepo"
 _PATCH_SETTINGS   = f"{_MOD}.settings"
 
 
@@ -112,8 +108,8 @@ _PATCH_SETTINGS   = f"{_MOD}.settings"
 # Tests
 # ─────────────────────────────────────────────
 
-def test_successful_build_transitions_to_completed():
-    """A clean successful run sets phase='completed' and job status=DONE."""
+def test_successful_build_transitions_to_done():
+    """A clean successful run sets phase='done' and job status=DONE."""
     job_id, topic_id = _seed_job()
 
     mock_settings = MagicMock()
@@ -121,8 +117,6 @@ def test_successful_build_transitions_to_completed():
 
     with (
         patch(_PATCH_RUN_VIZ, return_value=_make_success_result()),
-        patch(_PATCH_VITE_PATCH),
-        patch(_PATCH_ERR_BOUND),
         patch(_PATCH_SETTINGS, mock_settings),
     ):
         run_build_task(job_id, topic_id)
@@ -130,7 +124,7 @@ def test_successful_build_transitions_to_completed():
     job = job_store.get(job_id)
     assert job is not None
     task = job.builds[topic_id]
-    assert task.phase == "completed", f"Expected completed, got {task.phase!r}"
+    assert task.phase == "done", f"Expected done, got {task.phase!r}"
     assert job.status == JobStatus.DONE
 
 
@@ -143,8 +137,6 @@ def test_subprocess_failure_marks_failed():
 
     with (
         patch(_PATCH_RUN_VIZ, return_value=_make_failed_result()),
-        patch(_PATCH_VITE_PATCH),
-        patch(_PATCH_ERR_BOUND),
         patch(_PATCH_SETTINGS, mock_settings),
     ):
         run_build_task(job_id, topic_id)
@@ -181,29 +173,29 @@ def test_subprocess_exception_marks_failed():
 
 def test_github_publish_called_on_success_when_enabled():
     """When settings.publish_to_github=True and settings.github_token is set,
-    publish_viz_repo should be called once."""
+    publish_viz_to_monorepo should be called once."""
     job_id, topic_id = _seed_job()
 
     mock_settings = MagicMock()
     mock_settings.publish_to_github = True
     mock_settings.github_token = "ghp_faketoken"
-    mock_settings.github_include_dist = True
     mock_settings.github_repos_private = False
+    mock_settings.viz_monorepo_name = "monorepo"
 
     fake_pub = SimpleNamespace(
-        html_url="https://github.com/owner/repo",
-        clone_url="https://github.com/owner/repo.git",
-        repo_name="repo",
-        commit_sha="abc123",
-        file_count=10,
+        html_url="https://github.com/user/monorepo",
+        clone_url="https://github.com/user/monorepo.git",
+        repo_name="monorepo",
+        commit_sha="abc",
+        file_count=2,
+        embed_url="https://user.github.io/monorepo/slug/",
+        repo_edit_url="https://github.com/user/monorepo/tree/main/slug",
     )
 
     mock_publish = MagicMock(return_value=fake_pub)
 
     with (
         patch(_PATCH_RUN_VIZ, return_value=_make_success_result()),
-        patch(_PATCH_VITE_PATCH),
-        patch(_PATCH_ERR_BOUND),
         patch(_PATCH_SETTINGS, mock_settings),
         patch(_PATCH_PUBLISH, mock_publish),
     ):
@@ -215,7 +207,7 @@ def test_github_publish_called_on_success_when_enabled():
     assert job is not None
     task = job.builds[topic_id]
     assert task.github_status == "published"
-    assert task.github_repo_url == "https://github.com/owner/repo"
+    assert task.github_repo_url == "https://github.com/user/monorepo"
 
 
 def test_github_skipped_when_token_not_set(monkeypatch):
@@ -228,8 +220,6 @@ def test_github_skipped_when_token_not_set(monkeypatch):
 
     with (
         patch(_PATCH_RUN_VIZ, return_value=_make_success_result()),
-        patch(_PATCH_VITE_PATCH),
-        patch(_PATCH_ERR_BOUND),
         patch(_PATCH_SETTINGS, mock_settings),
     ):
         run_build_task(job_id, topic_id)
@@ -241,21 +231,41 @@ def test_github_skipped_when_token_not_set(monkeypatch):
     assert "GITHUB_TOKEN" in task.github_error
 
 
+def test_github_skipped_when_monorepo_name_not_set(monkeypatch):
+    """When settings.viz_monorepo_name is empty, github_status should be 'skipped'."""
+    job_id, topic_id = _seed_job()
+
+    mock_settings = MagicMock()
+    mock_settings.publish_to_github = True
+    mock_settings.github_token = "ghp_faketoken"
+    mock_settings.viz_monorepo_name = ""   # simulate missing VIZ_MONOREPO_NAME
+
+    with (
+        patch(_PATCH_RUN_VIZ, return_value=_make_success_result()),
+        patch(_PATCH_SETTINGS, mock_settings),
+    ):
+        run_build_task(job_id, topic_id)
+
+    job = job_store.get(job_id)
+    assert job is not None
+    task = job.builds[topic_id]
+    assert task.github_status == "skipped"
+    assert "VIZ_MONOREPO_NAME" in task.github_error
+
+
 def test_github_failure_does_not_crash_build():
-    """If publish_viz_repo raises, the build should still complete (phase=completed)
+    """If publish_viz_to_monorepo raises, the build should still complete (phase=done)
     and github_status should be 'failed'."""
     job_id, topic_id = _seed_job()
 
     mock_settings = MagicMock()
     mock_settings.publish_to_github = True
     mock_settings.github_token = "ghp_faketoken"
-    mock_settings.github_include_dist = True
     mock_settings.github_repos_private = False
+    mock_settings.viz_monorepo_name = "monorepo"
 
     with (
         patch(_PATCH_RUN_VIZ, return_value=_make_success_result()),
-        patch(_PATCH_VITE_PATCH),
-        patch(_PATCH_ERR_BOUND),
         patch(_PATCH_SETTINGS, mock_settings),
         patch(_PATCH_PUBLISH, side_effect=Exception("GitHub API 500")),
     ):
@@ -265,7 +275,7 @@ def test_github_failure_does_not_crash_build():
     assert job is not None
     task = job.builds[topic_id]
     # The build itself succeeded; only GitHub failed
-    assert task.phase == "completed"
+    assert task.phase == "done"
     assert task.github_status == "failed"
     assert "GitHub API 500" in task.github_error
 
@@ -299,8 +309,6 @@ def test_manifest_built_when_all_builds_finish():
 
     with (
         patch(_PATCH_RUN_VIZ, return_value=_make_success_result()),
-        patch(_PATCH_VITE_PATCH),
-        patch(_PATCH_ERR_BOUND),
         patch(_PATCH_SETTINGS, mock_settings),
     ):
         run_build_task(job_id, topic_id)
@@ -335,8 +343,6 @@ def test_progress_log_capped_at_300_lines():
 
     with (
         patch(_PATCH_RUN_VIZ, side_effect=fake_run_viz_build),
-        patch(_PATCH_VITE_PATCH),
-        patch(_PATCH_ERR_BOUND),
         patch(_PATCH_SETTINGS, mock_settings),
     ):
         run_build_task(job_id, topic_id)

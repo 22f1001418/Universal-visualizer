@@ -46,16 +46,13 @@ BUILD_TIMEOUT_SECONDS = settings.build_timeout_seconds
 # ──────────────────────────────────────────────
 
 _PHASE_PATTERNS: list[tuple[str, str]] = [
-    (r"\[STATUS\]\s*STEP\s*1",                    "step1_generate"),
-    (r"\[Step 1\]\s*Generating",                   "step1_generate"),
-    (r"\[STATUS\]\s*STEP\s*2",                    "step2_build"),
-    (r"\[Step 2\]\s*npm install",                  "step2_build"),
-    (r"\[Build \d+/\d+\]",                         "step2_build"),
-    (r"\[STATUS\]\s*STEP\s*3",                    "step3_runtime"),
-    (r"\[Step 3\]\s*Semantic runtime",             "step3_runtime"),
-    (r"\[STATUS\]\s*STEP\s*4",                    "step4_polish"),
-    (r"\[Step 4\]\s*Design polish",                "step4_polish"),
-    (r"DONE!",                                      "completed"),
+    (r"\[STATUS\]\s*STEP\s*1",         "draft"),    # classify is part of draft phase from SPA POV
+    (r"\[STATUS\]\s*STEP\s*2",         "draft"),
+    (r"\[draft\]",                      "draft"),
+    (r"\[validate\]",                   "validate"),
+    (r"\[STATUS\]\s*STEP\s*3",         "polish"),
+    (r"\[polish\]",                     "polish"),
+    (r"\bDONE!",                        "done"),
 ]
 _COMPILED = [(re.compile(p, re.IGNORECASE), phase) for p, phase in _PHASE_PATTERNS]
 
@@ -188,7 +185,7 @@ def run_viz_build(
     # Hint string for tiebreaking when multiple new dirs appear (rare).
     expected_slug_hint = _slug_for_topic(topic_brief)
 
-    cmd = [sys.executable, str(FIXED_MAIN_PATH), "--topic", topic_brief]
+    cmd = [sys.executable, str(FIXED_MAIN_PATH), "--topic", topic_brief, "--polish"]
     logger.info("[Builder] cwd=%s", VIZ_OUTPUT_DIR)
     logger.info("[Builder] cmd=%s", " ".join(cmd[:3] + [repr(topic_brief[:80])]))
 
@@ -267,15 +264,20 @@ def run_viz_build(
 
     if project_dir_path is not None and project_dir_path.exists():
         result.project_dir = str(project_dir_path)
-        # fixed_main_v6.py screenshot file = "<slug>_screenshot.png" inside
-        # the project dir. We don't know the exact slug it picked, so just
-        # glob for "*_screenshot.png" and take the most recent.
-        shots = sorted(
-            project_dir_path.glob("*_screenshot.png"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        result.screenshot_path = str(shots[0]) if shots else ""
+        # Vanilla viz validator writes a single `screenshot.png` at the
+        # project root (no slug prefix). Older builds with `*_screenshot.png`
+        # are still picked up as a fallback so in-flight jobs from a prior
+        # deploy don't lose their screenshot reference.
+        shot = project_dir_path / "screenshot.png"
+        if shot.exists():
+            result.screenshot_path = str(shot)
+        else:
+            legacy = sorted(
+                project_dir_path.glob("*_screenshot.png"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            result.screenshot_path = str(legacy[0]) if legacy else ""
     else:
         result.project_dir = ""
         result.screenshot_path = ""
@@ -288,11 +290,11 @@ def run_viz_build(
         )
 
     # Heuristic: success if exit code 0 AND we found a project directory
-    # AND the build reached at least step3 (runtime validation).
+    # AND the build reached at least the validate phase.
     if (
         proc.returncode == 0
         and result.project_dir
-        and last_phase in ("completed", "step4_polish", "step3_runtime")
+        and last_phase in ("done", "polish", "validate")
     ):
         result.success = True
     else:

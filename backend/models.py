@@ -81,11 +81,11 @@ class VizSuggestionsResult(BaseModel):
 
 BuildPhase = Literal[
     "queued",
-    "step1_generate",
-    "step2_build",
-    "step3_runtime",
-    "step4_polish",
-    "completed",
+    "draft",
+    "validate",
+    "polish",
+    "publish",
+    "done",
     "failed",
 ]
 
@@ -113,6 +113,13 @@ class BuildTask(BaseModel):
     github_repo_name: str = ""
     github_commit_sha: str = ""
     github_error: str = ""
+
+    # Vanilla viz monorepo publish (vanilla-viz-stage-1) — populated by
+    # publish_viz_to_monorepo. embed_url is the GitHub Pages URL the SPA
+    # shows; repo_edit_url is the GitHub UI URL for the viz subdir.
+    embed_url: str = ""
+    repo_edit_url: str = ""
+    monorepo_name: str = ""
 
 
 class BuildRequest(BaseModel):
@@ -159,6 +166,8 @@ class EmbedManifestEntry(BaseModel):
     screenshot_path: str = ""
     github_repo_url: str = ""       # standalone repo for this viz (if published)
     status: Literal["ok", "failed", "skipped"] = "ok"
+    embed_url: str = ""                # https://<owner>.github.io/<monorepo>/<slug>/
+    repo_edit_url: str = ""            # https://github.com/<owner>/<monorepo>/tree/main/<slug>
 
 
 class JobState(BaseModel):

@@ -40,6 +40,8 @@ def build_manifest(job: JobState) -> list[EmbedManifestEntry]:
             project_dir=task.project_dir,
             screenshot_path=task.screenshot_path,
             github_repo_url=task.github_repo_url if task.github_status == "published" else "",
-            status="ok" if task.phase == "completed" else "failed",
+            embed_url=task.embed_url if task.github_status == "published" else "",
+            repo_edit_url=task.repo_edit_url if task.github_status == "published" else "",
+            status="ok" if task.phase == "done" else "failed",
         ))
     return entries

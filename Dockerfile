@@ -15,11 +15,11 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 # ── Stage 3: runtime ──────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
-# Install Node.js 20 LTS + system deps needed by Playwright/Chromium
+# Install only what Playwright needs to fetch chromium deps. Node is gone:
+# the vanilla viz pipeline emits one self-contained HTML file and does not
+# run `npm install` or `npm build`.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl gnupg ca-certificates \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+        ca-certificates \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 WORKDIR /app

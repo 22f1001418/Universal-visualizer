@@ -5,22 +5,22 @@ type BuildTask = NonNullable<JobState['builds']>[string];
 type ExtractedTopic = components['schemas']['ExtractedTopic'];
 
 const PHASE_LABELS: Record<string, string> = {
-  queued:          'Queued',
-  step1_generate:  'Generating draft code',
-  step2_build:     'Build error loop',
-  step3_runtime:   'Runtime validation',
-  step4_polish:    'Design polish',
-  completed:       'Completed',
-  failed:          'Failed',
+  queued:    'Queued',
+  draft:     'Generating draft',
+  validate:  'Validating',
+  polish:    'Polishing design',
+  publish:   'Publishing to GitHub',
+  done:      'Done',
+  failed:    'Failed',
 };
 
 const PHASE_ORDER = [
   'queued',
-  'step1_generate',
-  'step2_build',
-  'step3_runtime',
-  'step4_polish',
-  'completed',
+  'draft',
+  'validate',
+  'polish',
+  'publish',
+  'done',
 ];
 
 interface BuildCardProps {

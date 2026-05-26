@@ -98,6 +98,12 @@ class Settings(BaseSettings):
     github_include_dist: bool = True
     github_repos_private: bool = False
 
+    # ── Vanilla viz monorepo (vanilla-viz-stage-1) ───────────
+    # Name of the GitHub repo that holds all published vanilla vizes as
+    # subdirectories. REQUIRED at publish time; empty default makes test
+    # construction work without env config.
+    viz_monorepo_name: str = ""
+
     # ── Build orchestration (Stage 3) ────────────────────────
     build_timeout_seconds: int = 1200
     viz_output_dir: str = "viz_outputs"
