@@ -9,8 +9,8 @@ RUN npm run build   # → /app/backend/static (vite.config.ts outDir: ../backend
 # ── Stage 2: python deps (separate so deps cache survives code changes) ───────
 FROM python:3.12-slim AS python-deps
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock .
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 # ── Stage 3: runtime ──────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
