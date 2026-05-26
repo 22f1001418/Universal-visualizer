@@ -151,3 +151,35 @@ def test_manifest_multiple_topics_ordering():
     assert out[0].topic == "Topic 0"
     assert out[1].topic == "Topic 1"
     assert out[2].topic == "Topic 2"
+
+
+def test_manifest_includes_embed_url_when_published():
+    from backend.models import BuildTask
+
+    job = _fixture_job(num_topics=1, completed_indices=[0])
+    topic_id = "topic_0"
+    build = job.builds[topic_id]
+    build.github_status = "published"
+    build.github_repo_url = "https://github.com/u/m"
+    build.embed_url = "https://u.github.io/m/t/"
+    build.repo_edit_url = "https://github.com/u/m/tree/main/t"
+    entries = build_manifest(job)
+    assert len(entries) == 1
+    e = entries[0]
+    assert e.embed_url == "https://u.github.io/m/t/"
+    assert e.repo_edit_url == "https://github.com/u/m/tree/main/t"
+    assert e.status == "ok"
+
+
+def test_manifest_embed_url_empty_when_not_published():
+    """If github_status is not 'published', embed_url + repo_edit_url should be blanked
+    in the manifest entry even if the BuildTask has them set."""
+    job = _fixture_job(num_topics=1, completed_indices=[0])
+    topic_id = "topic_0"
+    build = job.builds[topic_id]
+    build.github_status = "failed"
+    build.embed_url = "https://u.github.io/m/t/"
+    build.repo_edit_url = "https://github.com/u/m/tree/main/t"
+    entries = build_manifest(job)
+    assert entries[0].embed_url == ""
+    assert entries[0].repo_edit_url == ""
