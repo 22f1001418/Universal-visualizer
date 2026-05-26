@@ -5,7 +5,7 @@ records that the content creator drops into the source script.
 """
 from __future__ import annotations
 
-from models import EmbedManifestEntry, JobState
+from backend.models import EmbedManifestEntry, JobState
 
 
 def build_manifest(job: JobState) -> list[EmbedManifestEntry]:

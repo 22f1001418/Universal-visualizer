@@ -22,8 +22,8 @@ from backend.api import mount_routers                    # noqa: E402
 from backend.config import settings                      # noqa: E402
 from backend.llm import is_reasoning_model               # noqa: E402
 from backend.logging_setup import configure_root_logger  # noqa: E402
-from orchestrator import FIXED_MAIN_PATH, VIZ_OUTPUT_DIR # noqa: E402
-from store import job_store                              # noqa: E402
+from backend.orchestrator import FIXED_MAIN_PATH, VIZ_OUTPUT_DIR # noqa: E402
+from backend.store import job_store                              # noqa: E402
 
 configure_root_logger(level=logging.INFO)
 logger = logging.getLogger("hackmd-orch")

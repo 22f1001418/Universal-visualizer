@@ -1,0 +1,41 @@
+[project]
+name = "universal-visualizer"
+version = "0.2.0"
+description = "Turn HackMD lecture scripts into embedded React+Vite visualizations."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "python-multipart>=0.0.9",
+    "python-dotenv>=1.0.0",
+    "openai>=1.66.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.2.0,<3",
+    "playwright>=1.40.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "mypy>=1.10",
+    "ruff>=0.5",
+    "import-linter>=2.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.mypy]
+strict = true
+files = ["backend/llm", "backend/services", "backend/api", "backend/config.py"]

@@ -22,10 +22,10 @@ forbidden_modules =
     backend.viz_generator
 
 [importlinter:contract:3]
-name = api/ and services/ never import from main.py
+name = api/ and services/ never import from backend.main
 type = forbidden
 source_modules =
     backend.api
     backend.services
 forbidden_modules =
-    main
+    backend.main

@@ -8,8 +8,8 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from backend.config import settings as _settings
-from models import JobState
-from store import job_store
+from backend.models import JobState
+from backend.store import job_store
 
 
 def get_settings():
