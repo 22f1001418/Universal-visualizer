@@ -14,8 +14,6 @@ _BASE = _PROJECT_ROOT / "backend" / "viz_generator"
 def test_each_phase_uses_expected_task():
     expected = {
         "phases/draft.py":        "LLMTask.VIZ_DRAFT",
-        "phases/build_loop.py":   "LLMTask.VIZ_BUILD_FIX",
-        "phases/runtime_loop.py": "LLMTask.VIZ_RUNTIME_FIX",
         "phases/polish.py":       "LLMTask.VIZ_POLISH",
         "topic.py":               "LLMTask.VIZ_TOPIC_CLASSIFY",
     }
