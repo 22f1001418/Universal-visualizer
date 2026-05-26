@@ -15,11 +15,7 @@ from pathlib import Path
 
 from backend.config import settings
 from backend.services.manifest_builder import build_manifest
-from backend.viz_generator.postprocess import (
-    _inject_error_boundary,
-    _patch_vite_config_base,
-)
-from backend.github_publisher import publish_viz_repo
+from backend.github_publisher import publish_viz_to_monorepo
 from backend.models import JobStatus
 from backend.orchestrator import run_viz_build
 from backend.store import job_store
@@ -85,47 +81,28 @@ def run_build_task(job_id: str, topic_id: str) -> None:
     task.project_dir = result.project_dir
     task.screenshot_path = result.screenshot_path
     task.error = result.error or ""
-    task.phase = "completed" if result.success else "failed"
+    task.phase = "done" if result.success else "failed"
 
-    # ── Patch vite.config.ts to use relative asset paths (base: './') ──
-    # Without this, dist/index.html references /assets/... absolutely, which
-    # 404s on any subpath deploy AND looks broken if a host serves the source
-    # repo root instead of dist/. Safe to apply unconditionally — `./` works
-    # at root and subpath alike.
-    if result.success and result.project_dir:
-        try:
-            _patch_vite_config_base(Path(result.project_dir), on_log=on_log)
-        except Exception as exc:                # noqa: BLE001 — patcher must never crash the build
-            logger.warning("[Build %s] vite.config patch skipped: %s", topic_id, exc)
-
-    # ── Wrap <App/> in an ErrorBoundary so first-render crashes are visible ──
-    # The LLM-generated App.tsx occasionally throws on initial render (bad
-    # regex, undefined access, etc.). Without a boundary, React 18 unmounts
-    # the tree and the deployed page goes blank with no clue. The boundary
-    # renders the actual error + stack inline so the failure is debuggable
-    # from the deployed page itself.
-    if result.success and result.project_dir:
-        try:
-            _inject_error_boundary(Path(result.project_dir), on_log=on_log)
-        except Exception as exc:                # noqa: BLE001
-            logger.warning("[Build %s] ErrorBoundary injection skipped: %s", topic_id, exc)
-
-    # ── Publish the viz to its own standalone GitHub repo ──
+    # ── Publish the viz to the monorepo (one subdir per viz) ──
     if result.success and result.project_dir and settings.publish_to_github:
         if not settings.github_token:
             task.github_status = "skipped"
             task.github_error = "GITHUB_TOKEN not set"
             on_log("[GitHub] skipped — GITHUB_TOKEN not set")
+        elif not settings.viz_monorepo_name:
+            task.github_status = "skipped"
+            task.github_error = "VIZ_MONOREPO_NAME not set"
+            on_log("[GitHub] skipped — VIZ_MONOREPO_NAME not set")
         else:
-            _status("GITHUB PUBLISH", f"job_id={job_id}  topic_id={topic_id}  project={result.project_dir}")
+            _status("PUBLISH", f"job_id={job_id}  topic_id={topic_id}  project={result.project_dir}")
+            task.phase = "publish"  # type: ignore[assignment]
             task.github_status = "publishing"
             try:
                 slug = task.short_topic or Path(result.project_dir).name
-                pub = publish_viz_repo(
+                pub = publish_viz_to_monorepo(
                     project_dir=result.project_dir,
                     slug=slug,
                     description=(task.final_viz_brief or slug)[:300],
-                    include_dist=settings.github_include_dist,
                     private=settings.github_repos_private,
                     on_log=on_log,
                 )
@@ -134,17 +111,22 @@ def run_build_task(job_id: str, topic_id: str) -> None:
                 task.github_clone_url = pub.clone_url
                 task.github_repo_name = pub.repo_name
                 task.github_commit_sha = pub.commit_sha
-                logger.info("[Build %s] Published to %s (%d files)",
-                            topic_id, pub.html_url, pub.file_count)
+                task.embed_url = pub.embed_url
+                task.repo_edit_url = pub.repo_edit_url
+                task.monorepo_name = pub.repo_name
+                task.phase = "done"  # type: ignore[assignment]
+                logger.info("[Build %s] Published to %s",
+                            topic_id, pub.embed_url)
             except Exception as exc:                # noqa: BLE001 — publish must never crash the build
                 logger.exception("[Build %s] GitHub publish failed: %s", topic_id, exc)
                 task.github_status = "failed"
                 task.github_error = str(exc)[:500]
+                task.phase = "done"  # type: ignore[assignment]
                 on_log(f"[GitHub] FAILED — {exc}")
 
     # Update overall job status only when ALL builds in the job are done
     all_builds_finished = all(
-        b.phase in ("completed", "failed") for b in job.builds.values()
+        b.phase in ("done", "failed") for b in job.builds.values()
     )
     if all_builds_finished:
         any_failed = any(b.phase == "failed" for b in job.builds.values())

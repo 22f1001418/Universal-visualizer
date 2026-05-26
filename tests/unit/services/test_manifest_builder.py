@@ -23,7 +23,7 @@ def _make_topic(idx: int) -> ExtractedTopic:
     )
 
 
-def _make_build(topic_id: str, phase: str = "completed") -> BuildTask:
+def _make_build(topic_id: str, phase: str = "done") -> BuildTask:
     return BuildTask(
         id=f"build_{topic_id}",
         topic_id=topic_id,
@@ -39,12 +39,12 @@ def _make_build(topic_id: str, phase: str = "completed") -> BuildTask:
 
 def _fixture_job(num_topics: int, completed_indices: list[int]) -> JobState:
     """Build a JobState with N topics; only the indices in completed_indices
-    have BuildTasks in the 'completed' phase."""
+    have BuildTasks in the 'done' phase."""
     topics = [_make_topic(i) for i in range(num_topics)]
     builds: dict[str, BuildTask] = {}
     for i in completed_indices:
         topic_id = f"topic_{i}"
-        builds[topic_id] = _make_build(topic_id, phase="completed")
+        builds[topic_id] = _make_build(topic_id, phase="done")
     return JobState(
         job_id="test-job-1",
         script_name="test_script.md",
@@ -88,12 +88,12 @@ def test_manifest_includes_failed_builds_with_failed_status():
     assert out[0].status == "failed"
 
 
-def test_manifest_non_completed_non_failed_is_status_failed():
-    # Any phase other than "completed" maps to status="failed".
+def test_manifest_non_done_non_failed_is_status_failed():
+    # Any phase other than "done" maps to status="failed".
     job = _fixture_job(num_topics=1, completed_indices=[])
     topic_id = "topic_0"
     job.topics = [_make_topic(0)]
-    job.builds[topic_id] = _make_build(topic_id, phase="step2_build")
+    job.builds[topic_id] = _make_build(topic_id, phase="draft")
     out = build_manifest(job)
     assert len(out) == 1
     assert out[0].status == "failed"

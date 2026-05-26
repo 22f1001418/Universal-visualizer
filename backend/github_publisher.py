@@ -355,3 +355,46 @@ def publish_viz_repo(
         commit_sha=commit_sha,
         file_count=len(files),
     )
+
+
+# ── Monorepo publisher stub (Task 16 will provide the real implementation) ────
+
+@dataclass(frozen=True)
+class MonorepoPublishResult:
+    """Result returned by publish_viz_to_monorepo.
+
+    embed_url: GitHub Pages URL for the viz subdir.
+    repo_edit_url: URL to browse/edit the subdir on GitHub.
+    repo_name: The monorepo repo name (not a per-viz repo).
+    owner: GitHub owner/org.
+    html_url: https://github.com/owner/monorepo
+    clone_url: https://github.com/owner/monorepo.git
+    commit_sha: SHA of the commit that added/updated the subdir.
+    file_count: Number of files written into the subdir.
+    """
+
+    repo_name: str
+    owner: str
+    html_url: str
+    clone_url: str
+    commit_sha: str
+    file_count: int
+    embed_url: str
+    repo_edit_url: str
+
+
+def publish_viz_to_monorepo(
+    project_dir: str,
+    slug: str,
+    description: str = "",
+    private: bool = False,
+    on_log: LogFn = None,
+) -> MonorepoPublishResult:
+    """Push the viz at ``project_dir`` as a subdirectory of the shared monorepo.
+
+    This is a stub that raises NotImplementedError. Task 16 replaces the entire
+    github_publisher module with a real monorepo-based implementation.
+    """
+    raise NotImplementedError(
+        "publish_viz_to_monorepo is not yet implemented — Task 16 provides the real code"
+    )
