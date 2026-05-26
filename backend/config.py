@@ -19,6 +19,7 @@ from typing import Any, Literal
 
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
+from pydantic_settings.sources.providers.dotenv import DotEnvSettingsSource
 
 # CSV_FIELDS is the set of list[str] fields that accept comma-separated values
 # (not JSON arrays) when supplied via environment variables.
@@ -32,18 +33,27 @@ def _parse_csv(raw: str | list[str]) -> list[str]:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
-class _CsvEnvSource(EnvSettingsSource):
-    """Custom env source that CSV-splits fields listed in _CSV_FIELDS.
+class _CsvDecodeMixin:
+    """Mixin that CSV-splits fields listed in _CSV_FIELDS.
 
     pydantic-settings by default tries to JSON-decode all complex-typed fields
     (including list[str]). For CSV_FIELDS we intercept the decode step and split
-    on commas instead, so `ALLOWED_ORIGINS=a,b,c` works without JSON quoting.
+    on commas instead. Applied to both env-var and dotenv sources so the
+    behavior is identical whether the value comes from os.environ or .env.
     """
 
     def decode_complex_value(self, field_name: str, field: FieldInfo, value: Any) -> Any:
         if field_name in _CSV_FIELDS and isinstance(value, str):
             return _parse_csv(value)
         return super().decode_complex_value(field_name, field, value)
+
+
+class _CsvEnvSource(_CsvDecodeMixin, EnvSettingsSource):
+    pass
+
+
+class _CsvDotEnvSource(_CsvDecodeMixin, DotEnvSettingsSource):
+    pass
 
 
 class Settings(BaseSettings):
@@ -71,7 +81,7 @@ class Settings(BaseSettings):
     model_viz_polish: str | None = None
 
     # Budgets (Stage 2)
-    token_budget_per_job: int = 300_000
+    token_budget_per_job: int = 500_000
 
     # ── Server (Stage 3) ─────────────────────────────────────
     port: int = 8001
@@ -112,7 +122,7 @@ class Settings(BaseSettings):
         return (
             init_settings,
             _CsvEnvSource(settings_cls),
-            dotenv_settings,
+            _CsvDotEnvSource(settings_cls),
             file_secret_settings,
         )
 
