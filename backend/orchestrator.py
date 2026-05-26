@@ -264,15 +264,20 @@ def run_viz_build(
 
     if project_dir_path is not None and project_dir_path.exists():
         result.project_dir = str(project_dir_path)
-        # fixed_main_v6.py screenshot file = "<slug>_screenshot.png" inside
-        # the project dir. We don't know the exact slug it picked, so just
-        # glob for "*_screenshot.png" and take the most recent.
-        shots = sorted(
-            project_dir_path.glob("*_screenshot.png"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        result.screenshot_path = str(shots[0]) if shots else ""
+        # Vanilla viz validator writes a single `screenshot.png` at the
+        # project root (no slug prefix). Older builds with `*_screenshot.png`
+        # are still picked up as a fallback so in-flight jobs from a prior
+        # deploy don't lose their screenshot reference.
+        shot = project_dir_path / "screenshot.png"
+        if shot.exists():
+            result.screenshot_path = str(shot)
+        else:
+            legacy = sorted(
+                project_dir_path.glob("*_screenshot.png"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            result.screenshot_path = str(legacy[0]) if legacy else ""
     else:
         result.project_dir = ""
         result.screenshot_path = ""

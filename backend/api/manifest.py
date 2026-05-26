@@ -25,7 +25,7 @@ def get_manifest(job_id: str, job: JobState = Depends(get_job)) -> dict:
             "token_usage": token_tracker.job_summary(job_id),
         }
 
-    pending = [tid for tid, b in job.builds.items() if b.phase not in ("completed", "failed")]
+    pending = [tid for tid, b in job.builds.items() if b.phase not in ("done", "failed")]
     manifest = job.manifest or build_manifest(job)
 
     return {
