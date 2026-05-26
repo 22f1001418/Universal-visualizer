@@ -10,7 +10,6 @@ Env overrides per task:
   AGENT_B_SUGGEST     → MODEL_AGENT_B
   VIZ_TOPIC_CLASSIFY  → MODEL_VIZ_CLASSIFY
   VIZ_DRAFT           → MODEL_VIZ_DRAFT
-  VIZ_BUILD_FIX       → MODEL_VIZ_FIX
   VIZ_RUNTIME_FIX     → MODEL_VIZ_RUNTIME
   VIZ_POLISH          → MODEL_VIZ_POLISH
 
@@ -28,7 +27,6 @@ class LLMTask(str, Enum):
     AGENT_B_SUGGEST = "agent_b_suggest"
     VIZ_TOPIC_CLASSIFY = "viz_topic_classify"
     VIZ_DRAFT = "viz_draft"
-    VIZ_BUILD_FIX = "viz_build_fix"
     VIZ_RUNTIME_FIX = "viz_runtime_fix"
     VIZ_POLISH = "viz_polish"
 
@@ -38,7 +36,6 @@ _DEFAULTS: dict[LLMTask, str] = {
     LLMTask.AGENT_B_SUGGEST:    "gpt-4o-mini",
     LLMTask.VIZ_TOPIC_CLASSIFY: "gpt-4o-mini",
     LLMTask.VIZ_DRAFT:          "gpt-5",
-    LLMTask.VIZ_BUILD_FIX:      "gpt-5",
     LLMTask.VIZ_RUNTIME_FIX:    "gpt-5",
     LLMTask.VIZ_POLISH:         "gpt-5",
 }
@@ -48,7 +45,6 @@ _ENV_VAR: dict[LLMTask, str] = {
     LLMTask.AGENT_B_SUGGEST:    "MODEL_AGENT_B",
     LLMTask.VIZ_TOPIC_CLASSIFY: "MODEL_VIZ_CLASSIFY",
     LLMTask.VIZ_DRAFT:          "MODEL_VIZ_DRAFT",
-    LLMTask.VIZ_BUILD_FIX:      "MODEL_VIZ_FIX",
     LLMTask.VIZ_RUNTIME_FIX:    "MODEL_VIZ_RUNTIME",
     LLMTask.VIZ_POLISH:         "MODEL_VIZ_POLISH",
 }
