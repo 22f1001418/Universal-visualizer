@@ -37,10 +37,10 @@ _DEFAULTS: dict[LLMTask, str] = {
     LLMTask.AGENT_A_EXTRACT:    "gpt-4o-mini",
     LLMTask.AGENT_B_SUGGEST:    "gpt-4o-mini",
     LLMTask.VIZ_TOPIC_CLASSIFY: "gpt-4o-mini",
-    LLMTask.VIZ_DRAFT:          "gpt-4o",
-    LLMTask.VIZ_BUILD_FIX:      "gpt-4o-mini",
-    LLMTask.VIZ_RUNTIME_FIX:    "gpt-4o-mini",
-    LLMTask.VIZ_POLISH:         "gpt-4o-mini",
+    LLMTask.VIZ_DRAFT:          "gpt-5",
+    LLMTask.VIZ_BUILD_FIX:      "gpt-5",
+    LLMTask.VIZ_RUNTIME_FIX:    "gpt-5",
+    LLMTask.VIZ_POLISH:         "gpt-5",
 }
 
 _ENV_VAR: dict[LLMTask, str] = {
