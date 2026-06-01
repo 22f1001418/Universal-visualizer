@@ -15,7 +15,7 @@ from pathlib import Path
 
 from backend.config import settings
 from backend.services.manifest_builder import build_manifest
-from backend.github_publisher import publish_viz, sanitize_subdir_name
+from backend.github_publisher import publish_viz
 from backend.models import JobStatus
 from backend.orchestrator import run_viz_build
 from backend.store import job_store
