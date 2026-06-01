@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: hackmd-viz-orchestrator
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter            # has a persistent disk; free has none
+    healthCheckPath: /healthz
+    disk:
+      name: viz-outputs
+      mountPath: /app/viz_outputs
+      sizeGB: 1
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_OWNER
+        sync: false
+      - key: PROGRAM_REPOS
+        sync: false

@@ -107,8 +107,8 @@ class BuildTask(BaseModel):
     error: str = ""
     token_usage: dict = Field(default_factory=dict)
 
-    # GitHub publish — each successful build is published to a subdirectory of
-    # the monorepo, served via GitHub Pages
+    # GitHub publish — each successful build is published to its program repo
+    # and served on Vercel
     github_status: str = "not_started"       # not_started | publishing | published | skipped | failed
     github_repo_url: str = ""                # https://github.com/<owner>/<repo>
     github_clone_url: str = ""               # https://github.com/<owner>/<repo>.git
@@ -116,12 +116,12 @@ class BuildTask(BaseModel):
     github_commit_sha: str = ""
     github_error: str = ""
 
-    # Vanilla viz monorepo publish (vanilla-viz-stage-1) — populated by
-    # publish_viz_to_monorepo. embed_url is the GitHub Pages URL the SPA
-    # shows; repo_edit_url is the GitHub UI URL for the viz subdir.
+    # Per-program viz repo publish (Vercel deploy) — populated by
+    # publish_viz. embed_url is the Vercel URL the SPA shows;
+    # repo_edit_url is the GitHub UI URL for the viz subdir.
     embed_url: str = ""
     repo_edit_url: str = ""
-    monorepo_name: str = ""
+    monorepo_name: str = ""  # holds per-program repo name; rename to repo_name deferred (out of scope)
 
 
 class BuildRequest(BaseModel):
@@ -166,16 +166,17 @@ class EmbedManifestEntry(BaseModel):
     viz_brief: str
     project_dir: str
     screenshot_path: str = ""
-    github_repo_url: str = ""       # monorepo URL hosting this viz (if published)
+    github_repo_url: str = ""       # program repo URL hosting this viz (if published)
     status: Literal["ok", "failed", "skipped"] = "ok"
-    embed_url: str = ""                # https://<owner>.github.io/<monorepo>/<slug>/
-    repo_edit_url: str = ""            # https://github.com/<owner>/<monorepo>/tree/main/<slug>
+    embed_url: str = ""                # <vercel_base>/<module>/<viz>/
+    repo_edit_url: str = ""            # https://github.com/<owner>/<repo>/tree/main/<module>/<viz>
 
 
 class JobState(BaseModel):
     job_id: str
     script_name: str
     track: str = "Academy DSA"
+    module: str = ""    # module slug within a program; routes the publish path
     status: JobStatus = JobStatus.UPLOADED
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

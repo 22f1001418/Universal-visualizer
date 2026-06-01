@@ -14,7 +14,7 @@ _ONE_TOPIC_RESPONSE = (
 def _seed_job(client, fake_llm) -> str:
     fake_llm.responses["agent_A_topic_extraction"] = _ONE_TOPIC_RESPONSE
     files = {"file": ("seed.md", b"# Seed\n\nSeed content.\n", "text/markdown")}
-    r = client.post("/upload", files=files, data={"track": "Academy DSA"})
+    r = client.post("/upload", files=files, data={"track": "Academy DSA", "module": "intro"})
     assert r.status_code == 200, r.text
     return r.json()["job_id"]
 
