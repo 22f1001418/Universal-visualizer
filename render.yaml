@@ -3,12 +3,12 @@ services:
     name: hackmd-viz-orchestrator
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter            # has a persistent disk; free has none
+    plan: free               # free has no persistent disk; viz_outputs is
+                             # scratch only (each viz is pushed to its GitHub
+                             # repo = source of truth), so ephemeral storage is
+                             # fine. Note: free spins down on idle (~15min) and
+                             # cold-starts on the next request.
     healthCheckPath: /healthz
-    disk:
-      name: viz-outputs
-      mountPath: /app/viz_outputs
-      sizeGB: 1
     envVars:
       - key: OPENAI_API_KEY
         sync: false
