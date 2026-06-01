@@ -73,7 +73,10 @@ def test_allowed_origins_csv_parsing(monkeypatch):
     ]
 
 
-def test_github_defaults(monkeypatch):
+def test_github_defaults(monkeypatch, tmp_path):
+    # Run in a temp CWD so the repo's relative .env (which a developer may have
+    # populated with real GitHub config) isn't picked up — assert pure defaults.
+    monkeypatch.chdir(tmp_path)
     for name in ("GITHUB_TOKEN", "GITHUB_OWNER",
                  "PUBLISH_TO_GITHUB",
                  "GITHUB_REPOS_PRIVATE"):
