@@ -95,7 +95,6 @@ class Settings(BaseSettings):
     github_token: str | None = None
     github_owner: str | None = None
     publish_to_github: bool = True
-    github_include_dist: bool = True
     github_repos_private: bool = False
 
     # ── Vanilla viz monorepo (vanilla-viz-stage-1) ───────────
@@ -108,13 +107,6 @@ class Settings(BaseSettings):
     build_timeout_seconds: int = 1200
     viz_output_dir: str = "viz_outputs"
     fixed_main_path: str = "fixed_main_v6.py"
-
-    # ── Dev server (Stage 3) ─────────────────────────────────
-    dev_server_port_start: int = 5180
-    dev_server_port_end: int = 5230
-    preview_boot_wait: int = 45
-    npm_install_timeout: int = 300
-    audit_fix_enabled: bool = False
 
     @classmethod
     def settings_customise_sources(

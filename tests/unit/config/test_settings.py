@@ -75,7 +75,7 @@ def test_allowed_origins_csv_parsing(monkeypatch):
 
 def test_github_defaults(monkeypatch):
     for name in ("GITHUB_TOKEN", "GITHUB_OWNER",
-                 "PUBLISH_TO_GITHUB", "GITHUB_INCLUDE_DIST",
+                 "PUBLISH_TO_GITHUB",
                  "GITHUB_REPOS_PRIVATE"):
         monkeypatch.delenv(name, raising=False)
     from backend.config import Settings
@@ -83,7 +83,6 @@ def test_github_defaults(monkeypatch):
     assert s.github_token is None
     assert s.github_owner is None
     assert s.publish_to_github is True
-    assert s.github_include_dist is True
     assert s.github_repos_private is False
 
 
@@ -92,20 +91,6 @@ def test_github_repos_private_truthy(monkeypatch):
     from backend.config import Settings
     s = Settings()
     assert s.github_repos_private is True
-
-
-def test_dev_server_defaults(monkeypatch):
-    for name in ("DEV_SERVER_PORT_START", "DEV_SERVER_PORT_END",
-                 "PREVIEW_BOOT_WAIT", "NPM_INSTALL_TIMEOUT",
-                 "AUDIT_FIX_ENABLED"):
-        monkeypatch.delenv(name, raising=False)
-    from backend.config import Settings
-    s = Settings()
-    assert s.dev_server_port_start == 5180
-    assert s.dev_server_port_end == 5230
-    assert s.preview_boot_wait == 45
-    assert s.npm_install_timeout == 300
-    assert s.audit_fix_enabled is False
 
 
 def test_build_timeout_override(monkeypatch):
