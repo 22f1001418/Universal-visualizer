@@ -17,8 +17,8 @@ function makeJob(overrides: Record<string, unknown> = {}) {
       { id: 't_2', topic: 'Hash maps',     section: 'Data Structures', difficulty: 'intermediate', why: '', quote: '' },
     ],
     builds: {
-      t_1: { id: 'b_1', topic_id: 't_1', phase: 'step1_generate', progress_log: [], error: null },
-      t_2: { id: 'b_2', topic_id: 't_2', phase: 'step2_build',     progress_log: [], error: null },
+      t_1: { id: 'b_1', topic_id: 't_1', phase: 'draft',    progress_log: [], error: null },
+      t_2: { id: 'b_2', topic_id: 't_2', phase: 'validate', progress_log: [], error: null },
     },
     logs: ['log line 1', 'log line 2', 'log line 3'],
     ...overrides,
@@ -76,7 +76,7 @@ describe('Building', () => {
       'fetch',
       vi.fn(async () => {
         callCount++;
-        const phase = callCount === 1 ? 'step1_generate' : 'completed';
+        const phase = callCount === 1 ? 'draft' : 'done';
         const job = makeJob({
           builds: {
             t_1: { id: 'b_1', topic_id: 't_1', phase, progress_log: [], error: null },

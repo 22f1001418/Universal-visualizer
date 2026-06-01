@@ -30,6 +30,7 @@ interface BuildCardProps {
 
 export default function BuildCard({ build, topic }: BuildCardProps) {
   const phaseIdx = PHASE_ORDER.indexOf(build.phase);
+  const isTerminal = build.phase === 'done';
   const tail = (build.progress_log || []).slice(-12);
 
   return (
@@ -46,7 +47,7 @@ export default function BuildCard({ build, topic }: BuildCardProps) {
           let cls = 'seg';
           if (build.phase === 'failed') cls = 'seg' + (i < phaseIdx ? ' done' : '');
           else if (here < phaseIdx) cls = 'seg done';
-          else if (here === phaseIdx) cls = 'seg active';
+          else if (here === phaseIdx) cls = isTerminal ? 'seg done' : 'seg active';
           return <div key={p} className={cls} title={PHASE_LABELS[p]} />;
         })}
       </div>

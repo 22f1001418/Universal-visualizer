@@ -20,7 +20,7 @@ export function Building({ jobId, onAllDone, onBackToTopics, pollIntervalMs = 10
     const allDone =
       builds.length > 0 &&
       builds.every(
-        (b) => b.phase === 'completed' || b.phase === 'failed',
+        (b) => b.phase === 'done' || b.phase === 'failed',
       );
     if (allDone) {
       firedRef.current = true;

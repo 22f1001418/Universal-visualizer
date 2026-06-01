@@ -41,7 +41,7 @@ const JOB_RESPONSE = {
       short_topic: 'Binary search',
       final_viz_brief: '',
       custom_notes: '',
-      phase: 'completed',
+      phase: 'done',
       project_dir: '/tmp/viz/binary_search',
       screenshot_path: '/abs/path/to/screenshot.png',
       error: '',

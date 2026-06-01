@@ -47,7 +47,7 @@ export function Done({ jobId, onError, onRestart }: Props) {
       if (cancelled || !j) return;
       const builds = Object.values(j.builds || {});
       const anyBuilding = builds.some(
-        (b) => !['completed', 'failed'].includes(b.phase),
+        (b) => !['done', 'failed'].includes(b.phase),
       );
       const anyPublishing = builds.some((b) => b.github_status === 'publishing');
       if (anyBuilding || anyPublishing) {
