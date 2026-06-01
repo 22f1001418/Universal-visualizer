@@ -220,6 +220,8 @@ export interface components {
         Body_upload_script_upload_post: {
             /** Track */
             track: string;
+            /** Module */
+            module: string;
             /** File */
             file: string;
         };
@@ -473,6 +475,11 @@ export interface components {
              * @default Academy DSA
              */
             track: string;
+            /**
+             * Module
+             * @default
+             */
+            module: string;
             /** @default uploaded */
             status: components["schemas"]["JobStatus"];
             /**
