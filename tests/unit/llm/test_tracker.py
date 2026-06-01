@@ -40,6 +40,19 @@ def test_reasoning_tokens_recorded():
     assert s["reasoning_tokens"] == 150
 
 
+def test_print_summary_logs_process_totals(caplog):
+    t = TokenUsageTracker(budget_per_job=1_000_000)
+    t.record("step_a", 100, 50, job_id="j1", model="gpt-4o-mini")
+    t.record("step_b", 200, 75, job_id="j1", model="gpt-4o-mini")
+    with caplog.at_level("INFO", logger="hackmd-orch.llm"):
+        t.print_summary()
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "Total calls : 2" in text
+    assert "Total input : 300 tokens" in text
+    assert "Total output: 125 tokens" in text
+    assert "Total       : 425 tokens" in text
+
+
 def test_tracker_singleton_importable():
     from backend.llm.tracker import token_tracker
     assert token_tracker is not None
