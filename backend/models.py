@@ -166,16 +166,17 @@ class EmbedManifestEntry(BaseModel):
     viz_brief: str
     project_dir: str
     screenshot_path: str = ""
-    github_repo_url: str = ""       # monorepo URL hosting this viz (if published)
+    github_repo_url: str = ""       # program repo URL hosting this viz (if published)
     status: Literal["ok", "failed", "skipped"] = "ok"
-    embed_url: str = ""                # https://<owner>.github.io/<monorepo>/<slug>/
-    repo_edit_url: str = ""            # https://github.com/<owner>/<monorepo>/tree/main/<slug>
+    embed_url: str = ""                # <vercel_base>/<module>/<viz>/
+    repo_edit_url: str = ""            # https://github.com/<owner>/<repo>/tree/main/<module>/<viz>
 
 
 class JobState(BaseModel):
     job_id: str
     script_name: str
     track: str = "Academy DSA"
+    module: str = ""    # module slug within a program; routes the publish path
     status: JobStatus = JobStatus.UPLOADED
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
