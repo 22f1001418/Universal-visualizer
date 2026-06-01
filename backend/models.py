@@ -116,9 +116,9 @@ class BuildTask(BaseModel):
     github_commit_sha: str = ""
     github_error: str = ""
 
-    # Vanilla viz monorepo publish (vanilla-viz-stage-1) — populated by
-    # publish_viz_to_monorepo. embed_url is the GitHub Pages URL the SPA
-    # shows; repo_edit_url is the GitHub UI URL for the viz subdir.
+    # Per-program viz repo publish (Vercel deploy) — populated by
+    # publish_viz. embed_url is the Vercel URL the SPA shows;
+    # repo_edit_url is the GitHub UI URL for the viz subdir.
     embed_url: str = ""
     repo_edit_url: str = ""
     monorepo_name: str = ""

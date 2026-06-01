@@ -15,7 +15,7 @@ from pathlib import Path
 
 from backend.config import settings
 from backend.services.manifest_builder import build_manifest
-from backend.github_publisher import publish_viz_to_monorepo
+from backend.github_publisher import publish_viz, sanitize_subdir_name
 from backend.models import JobStatus
 from backend.orchestrator import run_viz_build
 from backend.store import job_store
@@ -85,24 +85,28 @@ def run_build_task(job_id: str, topic_id: str) -> None:
 
     # ── Publish the viz to the monorepo (one subdir per viz) ──
     if result.success and result.project_dir and settings.publish_to_github:
+        prog = settings.program_repos.get(job.track)
         if not settings.github_token:
             task.github_status = "skipped"
             task.github_error = "GITHUB_TOKEN not set"
             on_log("[GitHub] skipped — GITHUB_TOKEN not set")
-        elif not settings.viz_monorepo_name:
+        elif prog is None:
             task.github_status = "skipped"
-            task.github_error = "VIZ_MONOREPO_NAME not set"
-            on_log("[GitHub] skipped — VIZ_MONOREPO_NAME not set")
+            task.github_error = f"No program repo configured for track {job.track!r}"
+            on_log(f"[GitHub] skipped — no program repo for track {job.track!r}")
         else:
             _status("PUBLISH", f"job_id={job_id}  topic_id={topic_id}  project={result.project_dir}")
             task.phase = "publish"  # type: ignore[assignment]
             task.github_status = "publishing"
             try:
-                slug = task.short_topic or Path(result.project_dir).name
-                pub = publish_viz_to_monorepo(
+                viz_slug = task.short_topic or Path(result.project_dir).name
+                pub = publish_viz(
                     project_dir=result.project_dir,
-                    slug=slug,
-                    description=(task.final_viz_brief or slug)[:300],
+                    repo=prog.repo,
+                    vercel_base=prog.vercel_base,
+                    module_slug=job.module or "module",
+                    viz_slug=viz_slug,
+                    description=(task.final_viz_brief or viz_slug)[:300],
                     private=settings.github_repos_private,
                     on_log=on_log,
                 )
@@ -115,8 +119,7 @@ def run_build_task(job_id: str, topic_id: str) -> None:
                 task.repo_edit_url = pub.repo_edit_url
                 task.monorepo_name = pub.repo_name
                 task.phase = "done"  # type: ignore[assignment]
-                logger.info("[Build %s] Published to %s",
-                            topic_id, pub.embed_url)
+                logger.info("[Build %s] Published to %s", topic_id, pub.embed_url)
             except Exception as exc:                # noqa: BLE001 — publish must never crash the build
                 logger.exception("[Build %s] GitHub publish failed: %s", topic_id, exc)
                 task.github_status = "failed"

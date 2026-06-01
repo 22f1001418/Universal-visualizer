@@ -6,7 +6,7 @@ branch (success, build failure, github disabled).
 
 Mocking strategy:
   - backend.services.build_orchestrator.run_viz_build  — the subprocess wrapper
-  - backend.services.build_orchestrator.publish_viz_to_monorepo — GitHub publishing
+  - backend.services.build_orchestrator.publish_viz — GitHub publishing
   - backend.services.build_orchestrator.settings  — to control publish_to_github flag
 
 run_build_task is a plain synchronous function so no async runner is needed.
@@ -100,7 +100,7 @@ def _make_failed_result() -> SimpleNamespace:
 _MOD = "backend.services.build_orchestrator"
 
 _PATCH_RUN_VIZ    = f"{_MOD}.run_viz_build"
-_PATCH_PUBLISH    = f"{_MOD}.publish_viz_to_monorepo"
+_PATCH_PUBLISH    = f"{_MOD}.publish_viz"
 _PATCH_SETTINGS   = f"{_MOD}.settings"
 
 
@@ -173,14 +173,18 @@ def test_subprocess_exception_marks_failed():
 
 def test_github_publish_called_on_success_when_enabled():
     """When settings.publish_to_github=True and settings.github_token is set,
-    publish_viz_to_monorepo should be called once."""
+    publish_viz should be called once."""
     job_id, topic_id = _seed_job()
 
     mock_settings = MagicMock()
     mock_settings.publish_to_github = True
     mock_settings.github_token = "ghp_faketoken"
     mock_settings.github_repos_private = False
-    mock_settings.viz_monorepo_name = "monorepo"
+    mock_settings.program_repos = {
+        "Academy DSA": SimpleNamespace(
+            repo="viz-acad", vercel_base="https://viz-acad.vercel.app"
+        )
+    }
 
     fake_pub = SimpleNamespace(
         html_url="https://github.com/user/monorepo",
@@ -217,6 +221,7 @@ def test_github_skipped_when_token_not_set(monkeypatch):
     mock_settings = MagicMock()
     mock_settings.publish_to_github = True
     mock_settings.github_token = None   # simulate missing GITHUB_TOKEN
+    mock_settings.program_repos = {}    # token check fires first regardless
 
     with (
         patch(_PATCH_RUN_VIZ, return_value=_make_success_result()),
@@ -231,14 +236,15 @@ def test_github_skipped_when_token_not_set(monkeypatch):
     assert "GITHUB_TOKEN" in task.github_error
 
 
-def test_github_skipped_when_monorepo_name_not_set(monkeypatch):
-    """When settings.viz_monorepo_name is empty, github_status should be 'skipped'."""
+def test_github_skipped_when_no_program_repo_configured(monkeypatch):
+    """When no program repo is configured for the job's track, github_status
+    should be 'skipped'."""
     job_id, topic_id = _seed_job()
 
     mock_settings = MagicMock()
     mock_settings.publish_to_github = True
     mock_settings.github_token = "ghp_faketoken"
-    mock_settings.viz_monorepo_name = ""   # simulate missing VIZ_MONOREPO_NAME
+    mock_settings.program_repos = {}   # .get("Academy DSA") -> None
 
     with (
         patch(_PATCH_RUN_VIZ, return_value=_make_success_result()),
@@ -250,11 +256,12 @@ def test_github_skipped_when_monorepo_name_not_set(monkeypatch):
     assert job is not None
     task = job.builds[topic_id]
     assert task.github_status == "skipped"
-    assert "VIZ_MONOREPO_NAME" in task.github_error
+    assert "No program repo configured for track" in task.github_error
+    assert "Academy DSA" in task.github_error
 
 
 def test_github_failure_does_not_crash_build():
-    """If publish_viz_to_monorepo raises, the build should still complete (phase=done)
+    """If publish_viz raises, the build should still complete (phase=done)
     and github_status should be 'failed'."""
     job_id, topic_id = _seed_job()
 
@@ -262,7 +269,11 @@ def test_github_failure_does_not_crash_build():
     mock_settings.publish_to_github = True
     mock_settings.github_token = "ghp_faketoken"
     mock_settings.github_repos_private = False
-    mock_settings.viz_monorepo_name = "monorepo"
+    mock_settings.program_repos = {
+        "Academy DSA": SimpleNamespace(
+            repo="viz-acad", vercel_base="https://viz-acad.vercel.app"
+        )
+    }
 
     with (
         patch(_PATCH_RUN_VIZ, return_value=_make_success_result()),
