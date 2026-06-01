@@ -48,11 +48,13 @@ def get_topics(job: JobState = Depends(get_job)) -> dict:
 # ── POST /upload (Task 4) ─────────────────────────────────────
 import asyncio
 import logging
+import re
 import uuid
 
 from fastapi import File, Form, HTTPException, UploadFile
 
 from backend.agents import topic_extraction_agent
+from backend.github_publisher import sanitize_subdir_name
 from backend.models import (
     JobStatus,
     UploadResponse,
@@ -75,6 +77,7 @@ _job_script_cache: dict[str, str] = {}
 @router.post("/upload", response_model=UploadResponse)
 async def upload_script(
     track: str = Form(...),
+    module: str = Form(...),
     file: UploadFile = File(...),
 ) -> UploadResponse:
     """Accept a HackMD .md file, extract viz topics with Agent A.
@@ -84,6 +87,10 @@ async def upload_script(
     """
     if track not in ALLOWED_TRACKS:
         raise HTTPException(400, f"Invalid track: {track}")
+    if not re.search(r"[a-z0-9]", module.lower()):
+        # No usable alphanumeric character → sanitize would fall back to "viz".
+        raise HTTPException(400, "module must contain letters or digits")
+    module_slug = sanitize_subdir_name(module)
     if not file.filename or not file.filename.lower().endswith((".md", ".txt", ".markdown")):
         raise HTTPException(400, "Upload only .md / .markdown / .txt files.")
 
@@ -103,6 +110,7 @@ async def upload_script(
         job_id=job_id,
         script_name=file.filename,
         track=track,
+        module=module_slug,
         status=JobStatus.UPLOADED,
     )
     job_store.add(job)

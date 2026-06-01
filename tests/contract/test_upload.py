@@ -14,7 +14,7 @@ _ONE_TOPIC_RESPONSE = (
 def test_upload_minimal_md_returns_upload_response(client, fake_llm):
     fake_llm.responses["agent_A_topic_extraction"] = _ONE_TOPIC_RESPONSE
     files = {"file": ("test.md", b"# Test\n\nA short script.\n", "text/markdown")}
-    r = client.post("/upload", files=files, data={"track": "Academy DSA"})
+    r = client.post("/upload", files=files, data={"track": "Academy DSA", "module": "intro"})
     assert r.status_code == 200, r.text
     body = r.json()
     assert {"job_id", "script_name", "char_count", "status"} <= set(body.keys())
@@ -29,6 +29,20 @@ def test_upload_minimal_md_returns_upload_response(client, fake_llm):
 def test_upload_rejects_non_md_file(client, fake_llm):
     # .pdf is not in the allowed list (.md / .markdown / .txt) — main.py returns 400
     files = {"file": ("hello.pdf", b"%PDF-1.4 content", "application/pdf")}
-    r = client.post("/upload", files=files, data={"track": "Academy DSA"})
+    r = client.post("/upload", files=files, data={"track": "Academy DSA", "module": "intro"})
     # Observed: main.py raises HTTPException(400, ...) for non-.md/.txt/.markdown files
     assert r.status_code == 400
+
+
+def test_upload_requires_module(client, fake_llm):
+    files = {"file": ("test.md", b"# Test\n\nA short script.\n", "text/markdown")}
+    # Missing module → FastAPI form validation rejects with 422
+    r = client.post("/upload", files=files, data={"track": "Academy DSA"})
+    assert r.status_code == 422, r.text
+
+
+def test_upload_rejects_blank_module(client, fake_llm):
+    files = {"file": ("test.md", b"# Test\n\nA short script.\n", "text/markdown")}
+    # A module that sanitizes to empty (only punctuation) → 400
+    r = client.post("/upload", files=files, data={"track": "Academy DSA", "module": "  ///  "})
+    assert r.status_code == 400, r.text

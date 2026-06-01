@@ -317,3 +317,8 @@ def publish_viz(
         embed_url=f"{base}/{viz_path}/",
         repo_edit_url=f"{html_url}/tree/main/{viz_path}",
     )
+
+
+# ── backward-compat shim (removed by Task 5) ─────────────────────────────────
+# build_orchestrator still imports this name; Task 5 will switch it to publish_viz.
+publish_viz_to_monorepo = publish_viz
