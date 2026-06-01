@@ -1,5 +1,5 @@
 """Viz generator package — the subprocess that turns a topic + brief into
-a working React+Vite visualization project.
+a working self-contained HTML visualization (single index.html + screenshot).
 
 Public surface: cli.main (the subprocess entry point) and cli.build_parser
 (exposed for contract tests).

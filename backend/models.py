@@ -3,8 +3,9 @@
 A "Job" is the lifecycle of one HackMD upload. It moves through phases:
   uploaded -> topics_extracted -> awaiting_user_picks -> building -> done
 
-Each topic the user picks spawns a "BuildTask" which runs fixed_main_v6.py
-in a subprocess and writes back its progress + final viz path.
+Each topic the user picks spawns a "BuildTask" which runs the vanilla viz
+generator (`backend.viz_generator.cli`, entered via the `fixed_main_v6.py`
+stub) in a subprocess and writes back its progress + final viz path.
 """
 from __future__ import annotations
 
@@ -76,7 +77,7 @@ class VizSuggestionsResult(BaseModel):
 
 
 # ──────────────────────────────────────────────
-# Build task (calls fixed_main_v6.py)
+# Build task (spawns the vanilla viz generator subprocess)
 # ──────────────────────────────────────────────
 
 BuildPhase = Literal[
@@ -101,12 +102,13 @@ class BuildTask(BaseModel):
     progress_log: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: Optional[datetime] = None
-    project_dir: str = ""               # path to the generated Vite project
+    project_dir: str = ""               # path to the generated viz project dir (index.html + screenshot.png)
     screenshot_path: str = ""
     error: str = ""
     token_usage: dict = Field(default_factory=dict)
 
-    # GitHub publish — each successful build gets its own standalone repo
+    # GitHub publish — each successful build is published to a subdirectory of
+    # the monorepo, served via GitHub Pages
     github_status: str = "not_started"       # not_started | publishing | published | skipped | failed
     github_repo_url: str = ""                # https://github.com/<owner>/<repo>
     github_clone_url: str = ""               # https://github.com/<owner>/<repo>.git
@@ -164,7 +166,7 @@ class EmbedManifestEntry(BaseModel):
     viz_brief: str
     project_dir: str
     screenshot_path: str = ""
-    github_repo_url: str = ""       # standalone repo for this viz (if published)
+    github_repo_url: str = ""       # monorepo URL hosting this viz (if published)
     status: Literal["ok", "failed", "skipped"] = "ok"
     embed_url: str = ""                # https://<owner>.github.io/<monorepo>/<slug>/
     repo_edit_url: str = ""            # https://github.com/<owner>/<monorepo>/tree/main/<slug>

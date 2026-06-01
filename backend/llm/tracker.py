@@ -89,6 +89,26 @@ class TokenUsageTracker:
                 step_label, model_tag, input_tokens, output_tokens, cost,
             )
 
+    def print_summary(self) -> None:
+        """Log a process-lifetime token usage summary.
+
+        Used by one-shot subprocesses (e.g. the viz generator CLI) where the
+        process runs a single job, so process totals == job totals. Cost is
+        not reported here because, under per-task model routing, calls may span
+        multiple models; per-job cost lives in the per-job buckets instead.
+        """
+        with self._lock:
+            calls = self.total_calls
+            inp = self.total_input
+            out = self.total_output
+        logger.info("")
+        logger.info("━━━ TOKEN USAGE SUMMARY ━━━")
+        logger.info("Total calls : %d", calls)
+        logger.info("Total input : %d tokens", inp)
+        logger.info("Total output: %d tokens", out)
+        logger.info("Total       : %d tokens", inp + out)
+        logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
     def job_summary(self, job_id: str) -> dict:
         with self._lock:
             # Copy the bucket inside the lock so concurrent record() calls

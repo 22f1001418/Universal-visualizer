@@ -8,10 +8,6 @@ Note on test-time mutation: pydantic-settings reads env at construction.
 The `settings` singleton at module scope is bound once. Tests that need
 to override should construct a fresh Settings() inside the test (after
 monkeypatching the env), not mutate `settings` directly.
-
-Note: LLM_PROVIDER and MODEL_NAME (used by backend/viz_generator/llm.py)
-remain on os.getenv. Migrating them requires deeper restructuring of the
-viz_generator package and is not part of Stage 3.
 """
 from __future__ import annotations
 
@@ -95,7 +91,6 @@ class Settings(BaseSettings):
     github_token: str | None = None
     github_owner: str | None = None
     publish_to_github: bool = True
-    github_include_dist: bool = True
     github_repos_private: bool = False
 
     # ── Vanilla viz monorepo (vanilla-viz-stage-1) ───────────
@@ -108,13 +103,6 @@ class Settings(BaseSettings):
     build_timeout_seconds: int = 1200
     viz_output_dir: str = "viz_outputs"
     fixed_main_path: str = "fixed_main_v6.py"
-
-    # ── Dev server (Stage 3) ─────────────────────────────────
-    dev_server_port_start: int = 5180
-    dev_server_port_end: int = 5230
-    preview_boot_wait: int = 45
-    npm_install_timeout: int = 300
-    audit_fix_enabled: bool = False
 
     @classmethod
     def settings_customise_sources(

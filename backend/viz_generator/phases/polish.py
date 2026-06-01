@@ -20,9 +20,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from backend.llm import LLMTask
+from backend.llm.client import llm_call
 from backend.viz_generator.events import log_event
 from backend.viz_generator.files import extract_html, write_html_to_disk
-from backend.viz_generator.llm import llm_call
 from backend.viz_generator.prompts import POLISH_RUBRIC, UNIVERSAL_SYSTEM_PROMPT
 from backend.viz_generator.validator import validate
 
@@ -69,14 +69,12 @@ CURRENT HTML (working — do not break it):
 
 Output the complete polished HTML document only. No prose. No code fences."""
     raw = llm_call(
-        [
-            {"role": "system", "content": UNIVERSAL_SYSTEM_PROMPT},
-            {"role": "user",   "content": user_prompt},
-        ],
-        temperature=1,
-        max_tokens=MODEL_VIZ_POLISH_MAX_TOKENS,
+        system_prompt=UNIVERSAL_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
         step_label="polish",
         task=LLMTask.VIZ_POLISH,
+        temperature=1,
+        max_tokens=MODEL_VIZ_POLISH_MAX_TOKENS,
     )
     return extract_html(raw)
 

@@ -14,6 +14,7 @@ Behaviour preserved from the original llm_client:
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import time
 from typing import Optional
@@ -59,10 +60,29 @@ def get_client() -> OpenAI:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     client_timeout = settings.llm_client_timeout
-    _client = OpenAI(api_key=api_key, timeout=client_timeout, max_retries=0)
+    client = OpenAI(api_key=api_key, timeout=client_timeout, max_retries=0)
     logger.info("[LLM] OpenAI client ready  timeout=%.0fs", client_timeout)
     logger.info("[LLM] Reasoning models (gpt-5*/o-series) will use max_completion_tokens + reasoning_effort=%s",
                 REASONING_EFFORT)
+
+    # Optional LangSmith tracing: only active when langsmith is installed
+    # AND LANGSMITH_API_KEY is set. Silent no-op otherwise.
+    if os.getenv("LANGSMITH_API_KEY"):
+        try:
+            from langsmith.wrappers import wrap_openai
+            os.environ.setdefault("LANGSMITH_TRACING", "true")
+            os.environ.setdefault("LANGSMITH_PROJECT", "viz-agent")
+            client = wrap_openai(client)
+            logger.info(
+                "[LLM] LangSmith tracing: ENABLED  (project=%s)",
+                os.environ["LANGSMITH_PROJECT"],
+            )
+        except ImportError:
+            logger.info("[LLM] LangSmith tracing: disabled (langsmith not installed)")
+    else:
+        logger.info("[LLM] LangSmith tracing: disabled (LANGSMITH_API_KEY not set)")
+
+    _client = client
     return _client
 
 

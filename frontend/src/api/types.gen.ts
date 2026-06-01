@@ -201,7 +201,7 @@ export interface paths {
         };
         /**
          * Index
-         * @description Serve the legacy SPA HTML (flipped in Task 14).
+         * @description Serve the built SPA's index.html.
          */
         get: operations["index__get"];
         put?: never;
@@ -220,10 +220,7 @@ export interface components {
         Body_upload_script_upload_post: {
             /** Track */
             track: string;
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /**
@@ -283,7 +280,7 @@ export interface components {
              * @default queued
              * @enum {string}
              */
-            phase: "queued" | "step1_generate" | "step2_build" | "step3_runtime" | "step4_polish" | "completed" | "failed";
+            phase: "queued" | "draft" | "validate" | "polish" | "publish" | "done" | "failed";
             /** Progress Log */
             progress_log?: string[];
             /**
@@ -342,6 +339,21 @@ export interface components {
              * @default
              */
             github_error: string;
+            /**
+             * Embed Url
+             * @default
+             */
+            embed_url: string;
+            /**
+             * Repo Edit Url
+             * @default
+             */
+            repo_edit_url: string;
+            /**
+             * Monorepo Name
+             * @default
+             */
+            monorepo_name: string;
         };
         /**
          * EmbedManifestEntry
@@ -378,6 +390,16 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "failed" | "skipped";
+            /**
+             * Embed Url
+             * @default
+             */
+            embed_url: string;
+            /**
+             * Repo Edit Url
+             * @default
+             */
+            repo_edit_url: string;
         };
         /**
          * ExtractedTopic
@@ -528,6 +550,10 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
         /** VizSuggestion */
         VizSuggestion: {

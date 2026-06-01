@@ -47,7 +47,7 @@ export function Done({ jobId, onError, onRestart }: Props) {
       if (cancelled || !j) return;
       const builds = Object.values(j.builds || {});
       const anyBuilding = builds.some(
-        (b) => !['completed', 'failed'].includes(b.phase),
+        (b) => !['done', 'failed'].includes(b.phase),
       );
       const anyPublishing = builds.some((b) => b.github_status === 'publishing');
       if (anyBuilding || anyPublishing) {
@@ -95,7 +95,7 @@ export function Done({ jobId, onError, onRestart }: Props) {
         viz{data.manifest.length === 1 ? '' : 's'} pushed to GitHub.
       </h1>
       <p className="lead" style={{ marginTop: 8 }}>
-        Each viz has its own standalone repo. Clone, deploy, and embed at your leisure.
+        All vizes live in a single monorepo as subdirectories — each served at its own GitHub Pages URL.
       </p>
 
       <div style={{ marginTop: 36, display: 'flex', flexDirection: 'column', gap: 18 }}>

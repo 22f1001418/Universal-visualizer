@@ -18,15 +18,10 @@ import re
 import sys
 from pathlib import Path
 
+from backend.config import settings
+from backend.llm.client import get_client
+from backend.llm.tracker import token_tracker
 from backend.viz_generator.files import write_html_to_disk
-from backend.viz_generator.llm import (
-    LLM_PROVIDER,
-    MODEL_NAME,
-    TOKEN_BUDGET,
-    _init_client,
-    status,
-    token_tracker,
-)
 from backend.viz_generator.phases.draft import run_draft_phase
 from backend.viz_generator.phases.polish import run_polish_phase
 from backend.viz_generator.topic import classify_topic
@@ -37,6 +32,19 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 log = logging.getLogger("viz_agent")
+
+
+def status(stage: str, detail: str = "") -> None:
+    """Print a clearly-marked status line to stdout.
+
+    The orchestrator's stdout parser keys on these [STATUS] markers for SPA
+    progress-bar updates, so the exact output format must not change.
+    """
+    bar = "─" * 4
+    if detail:
+        log.info("\n%s [STATUS] %s — %s %s", bar, stage, detail, bar)
+    else:
+        log.info("\n%s [STATUS] %s %s", bar, stage, bar)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -63,7 +71,7 @@ def _slug_for_topic(topic: str) -> str:
 def main() -> None:
     args = build_parser().parse_args()
 
-    _init_client()
+    get_client()  # lazily initialise the OpenAI client + log readiness
 
     log.info("=" * 60)
     log.info("  Vanilla Viz Agent — '%s'", args.topic)
@@ -76,8 +84,8 @@ def main() -> None:
     project_dir = Path.cwd() / slug
 
     log.info(
-        "[Config] Token budget: %d  Model: %s  Provider: %s",
-        TOKEN_BUDGET, MODEL_NAME, LLM_PROVIDER,
+        "[Config] Token budget: %d  Default model: %s  (per-task routing via LLMTask)",
+        settings.token_budget_per_job, settings.openai_text_model,
     )
 
     status("STEP 2", "DRAFT + VALIDATE")

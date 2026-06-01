@@ -1,9 +1,13 @@
-"""Subprocess orchestrator — runs fixed_main_v6.py for a single topic build.
+"""Subprocess orchestrator — runs the vanilla viz generator for a single topic build.
+
+The generator is `backend.viz_generator.cli`, entered through the small
+`fixed_main_v6.py` stub. It drafts one self-contained HTML page, runs a single
+Playwright validation pass, polishes, and screenshots.
 
 Why subprocess and not direct import?
-  - fixed_main_v6.py is a CLI tool with its own logging, sys.exit() calls,
-    and global state (token tracker, Playwright browser). Importing it would
-    let multiple concurrent builds stomp on each other.
+  - The viz generator CLI has its own logging, sys.exit() calls, and global
+    state (token tracker, Playwright browser). Importing it would let multiple
+    concurrent builds stomp on each other.
   - Subprocess gives us process isolation, clean log capture, and a simple
     way to surface real-time progress to the frontend.
   - It also lets the operator tweak FIXED_MAIN_PATH or run a different
@@ -32,8 +36,8 @@ logger = logging.getLogger("hackmd-orch.runner")
 # Path to the viz-generator CLI. Override via FIXED_MAIN_PATH in .env.
 FIXED_MAIN_PATH = Path(settings.fixed_main_path).resolve()
 
-# Where the generated Vite projects should be created.
-# fixed_main_v6.py creates them in cwd, so we cd into VIZ_OUTPUT_DIR before running.
+# Where the generated viz project dirs should be created.
+# The subprocess creates them in cwd, so we cd into VIZ_OUTPUT_DIR before running.
 VIZ_OUTPUT_DIR = Path(settings.viz_output_dir).resolve()
 VIZ_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -42,7 +46,7 @@ BUILD_TIMEOUT_SECONDS = settings.build_timeout_seconds
 
 
 # ──────────────────────────────────────────────
-# Phase detection — map fixed_main output lines to BuildPhase
+# Phase detection — map viz generator output lines to BuildPhase
 # ──────────────────────────────────────────────
 
 _PHASE_PATTERNS: list[tuple[str, str]] = [
@@ -73,11 +77,11 @@ def detect_phase_from_line(line: str) -> Optional[str]:
 # ──────────────────────────────────────────────
 
 def _slug_for_topic(topic: str, max_len: int = 60) -> str:
-    """Mirrors the slug logic at the bottom of fixed_main_v6.py main(),
-    PLUS a hard length cap so we never produce a directory name longer
-    than the filesystem can hold. Keep this in sync with what
-    fixed_main_v6.py does — but the orchestrator no longer relies on
-    this matching exactly (see _snapshot_dirs / _find_new_dir below)."""
+    """Mirrors the slug logic the viz generator subprocess uses for its
+    output directory, PLUS a hard length cap so we never produce a directory
+    name longer than the filesystem can hold. Keep this roughly in sync with
+    the subprocess — but the orchestrator no longer relies on this matching
+    exactly (see _snapshot_dirs / _find_new_dir below)."""
     slug = re.sub(r"[^a-z0-9]+", "-", topic.lower()).strip("-")
     if len(slug) > max_len:
         slug = slug[:max_len].rstrip("-")
@@ -159,7 +163,7 @@ def run_viz_build(
     on_phase_change: Callable[[str], None] | None = None,
     extra_env: Optional[dict[str, str]] = None,
 ) -> BuildResult:
-    """Run fixed_main_v6.py for a single topic. Returns when the process exits.
+    """Run the vanilla viz generator subprocess for a single topic. Returns when the process exits.
 
     Args:
       topic_brief: the rich brief assembled from the suggestion + custom notes.
@@ -178,7 +182,7 @@ def run_viz_build(
         return result
 
     # Snapshot existing project dirs BEFORE the subprocess runs. We diff
-    # against this snapshot afterward to find whatever fixed_main_v6.py
+    # against this snapshot afterward to find whatever the subprocess
     # actually created — without having to predict its slug logic.
     dirs_before = _snapshot_dirs(VIZ_OUTPUT_DIR)
 

@@ -20,7 +20,7 @@ export function Building({ jobId, onAllDone, onBackToTopics, pollIntervalMs = 10
     const allDone =
       builds.length > 0 &&
       builds.every(
-        (b) => b.phase === 'completed' || b.phase === 'failed',
+        (b) => b.phase === 'done' || b.phase === 'failed',
       );
     if (allDone) {
       firedRef.current = true;
@@ -48,9 +48,9 @@ export function Building({ jobId, onAllDone, onBackToTopics, pollIntervalMs = 10
         visualization{builds.length === 1 ? '' : 's'}.
       </h1>
       <p className="lead">
-        Each viz spawns a <code>fixed_main_v6.py</code> subprocess that drafts
-        the React app, runs the npm build loop, validates runtime behavior, and
-        screenshots the result.
+        Each viz spawns the vanilla generator subprocess: it drafts a
+        self-contained HTML page, runs a single Playwright validation pass,
+        polishes the design, and screenshots the result.
       </p>
 
       <div style={{ marginTop: 36, display: 'flex', flexDirection: 'column', gap: 18 }}>

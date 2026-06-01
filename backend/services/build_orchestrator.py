@@ -1,8 +1,8 @@
 """Background build orchestration.
 
 run_build_task() is invoked by FastAPI's BackgroundTasks when the user
-picks a viz suggestion. It spawns fixed_main_v6.py (via backend.viz_generator.cli)
-as a subprocess, streams its progress into the JobState, optionally publishes
+picks a viz suggestion. It spawns the vanilla viz generator subprocess,
+streams its progress into the JobState, optionally publishes
 the result to GitHub, and updates job state through several phases.
 
 Was previously _run_build_task in main.py.
@@ -60,7 +60,7 @@ def run_build_task(job_id: str, topic_id: str) -> None:
 
     # Use short_topic (<=60 chars, ASCII-safe) for the subprocess --topic arg,
     # NOT the full brief. Long briefs cause "File name too long" errors when
-    # fixed_main_v6.py tries to slug them into a project directory name.
+    # the subprocess tries to slug them into a project directory name.
     topic_arg = task.short_topic or task.final_viz_brief
 
     try:
