@@ -122,8 +122,10 @@ export function Suggestions({ job, topic, onBuildQueued, onBack, onError }: Prop
           </div>
 
           <div className="tiny" style={{ marginTop: 16, opacity: 0.75 }}>
-            On success, the generated viz will be pushed to a brand-new GitHub repo
-            (if <code>GITHUB_TOKEN</code> is configured on the server).
+            On success, the viz is pushed to a subdirectory of your monorepo
+            (set <code>VIZ_MONOREPO_NAME</code> + <code>GITHUB_TOKEN</code> on the
+            server) and served via GitHub Pages at{' '}
+            <code>https://&lt;owner&gt;.github.io/&lt;monorepo&gt;/&lt;slug&gt;/</code>.
           </div>
 
           <div className="row-actions" style={{ marginTop: 16 }}>
