@@ -10,6 +10,7 @@ Was previously _run_build_task in main.py.
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +22,13 @@ from backend.orchestrator import run_viz_build
 from backend.store import job_store
 
 logger = logging.getLogger("hackmd-orch.build")
+
+# Serialize the Chromium-heavy generation step. Builds run as FastAPI
+# BackgroundTasks (worker threads), so two clicks could otherwise launch two
+# browsers at once and OOM a small instance (e.g. Render free, 512MB). A second
+# build blocks here until the first finishes generating. Publishing (a light
+# GitHub API call) stays outside the lock so it can overlap.
+_BUILD_LOCK = threading.Lock()
 
 
 def _status(stage: str, detail: str = "") -> None:
@@ -64,11 +72,13 @@ def run_build_task(job_id: str, topic_id: str) -> None:
     topic_arg = task.short_topic or task.final_viz_brief
 
     try:
-        result = run_viz_build(
-            topic_brief=topic_arg,
-            on_log=on_log,
-            on_phase_change=on_phase,
-        )
+        # Only one Chromium-backed generation at a time (see _BUILD_LOCK).
+        with _BUILD_LOCK:
+            result = run_viz_build(
+                topic_brief=topic_arg,
+                on_log=on_log,
+                on_phase_change=on_phase,
+            )
     except Exception as e:                # noqa: BLE001  — never let a build crash the worker
         logger.exception("[Build] subprocess crashed: %s", e)
         task.phase = "failed"

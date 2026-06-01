@@ -54,7 +54,21 @@ def validate(html: str, project_dir: Path) -> ValidationResult:
     screenshot_path = project_dir / "screenshot.png"
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        # Memory/stability flags for constrained containers (e.g. Render free,
+        # 512MB). --disable-dev-shm-usage avoids the tiny /dev/shm that crashes
+        # Chromium in Docker; --single-process is the biggest RAM reduction
+        # (drop it first if screenshots glitch); --no-sandbox is required when
+        # running as a non-root container user.
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--single-process",
+                "--no-zygote",
+            ],
+        )
         try:
             context = browser.new_context(viewport=VIEWPORT)
             page = context.new_page()
