@@ -15,7 +15,7 @@ from backend.viz_generator.events import log_event
 from backend.viz_generator.files import (
     extract_html, pre_validate_html, print_error_block,
 )
-from backend.viz_generator.llm import llm_call
+from backend.llm.client import llm_call
 from backend.viz_generator.prompts import UNIVERSAL_SYSTEM_PROMPT
 from backend.viz_generator.validator import ValidationResult, validate
 
@@ -47,14 +47,12 @@ BRIEF:
 
 Output the complete HTML document only. No prose. No code fences."""
     raw = llm_call(
-        [
-            {"role": "system", "content": UNIVERSAL_SYSTEM_PROMPT},
-            {"role": "user",   "content": user_prompt},
-        ],
-        temperature=1,
-        max_tokens=MODEL_VIZ_DRAFT_MAX_TOKENS,
+        system_prompt=UNIVERSAL_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
         step_label="draft",
         task=LLMTask.VIZ_DRAFT,
+        temperature=1,
+        max_tokens=MODEL_VIZ_DRAFT_MAX_TOKENS,
     )
     return extract_html(raw)
 
@@ -72,14 +70,12 @@ CURRENT HTML:
 Output the complete fixed HTML document only. Obey every constraint in the \
 system prompt. No prose. No code fences."""
     raw = llm_call(
-        [
-            {"role": "system", "content": UNIVERSAL_SYSTEM_PROMPT},
-            {"role": "user",   "content": user_prompt},
-        ],
-        temperature=1,
-        max_tokens=MODEL_VIZ_FIX_MAX_TOKENS,
+        system_prompt=UNIVERSAL_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
         step_label="draft_fix",
         task=LLMTask.VIZ_RUNTIME_FIX,
+        temperature=1,
+        max_tokens=MODEL_VIZ_FIX_MAX_TOKENS,
     )
     return extract_html(raw)
 
