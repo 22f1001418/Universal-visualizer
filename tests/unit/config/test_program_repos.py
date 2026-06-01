@@ -22,3 +22,11 @@ def test_program_repos_missing_track_returns_none(monkeypatch):
 
     s = Settings()
     assert s.program_repos.get("Academy DSA") is None
+
+
+def test_program_repos_defaults_to_empty_when_unset(monkeypatch):
+    monkeypatch.delenv("PROGRAM_REPOS", raising=False)
+    from backend.config import Settings
+
+    s = Settings()
+    assert s.program_repos == {}
