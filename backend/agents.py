@@ -344,8 +344,9 @@ def _ascii_sanitize(s: str) -> str:
     return out
 
 
-# How long the SHORT topic string can be. fixed_main_v6.py slugifies the
-# entire --topic argument and uses it as a filesystem directory name. macOS
+# How long the SHORT topic string can be. The viz generator subprocess
+# slugifies the entire --topic argument and uses it as a filesystem
+# directory name. macOS
 # and Linux both cap individual path components at 255 bytes; we leave a wide
 # safety margin because the slug also gets a "-viz" suffix and screenshot
 # filenames are appended on top.
@@ -357,14 +358,14 @@ def assemble_viz_brief(
     suggestion: VizSuggestion | None,
     custom_notes: str,
 ) -> tuple[str, str]:
-    """Compose two strings to drive fixed_main_v6.py:
+    """Compose two strings to drive the viz generator subprocess:
 
     Returns:
       short_topic: <= 60 chars, ASCII-safe. This becomes the filename slug.
       full_brief : the rich prompt content that gets sent to the LLM.
 
     The orchestrator passes `short_topic` via --topic and `full_brief` via
-    --extra-context (or an env var) so fixed_main_v6.py can use the rich brief
+    --extra-context (or an env var) so the subprocess can use the rich brief
     in its prompt WITHOUT shoving 1500 characters into the project's directory
     name (which crashes mkdir on every modern filesystem).
     """
