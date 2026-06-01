@@ -6,8 +6,8 @@ A FastAPI + React app that:
 2. Runs **Agent A** (topic extraction) to find 3-7 spots where an interactive viz would help a beginner
 3. For each topic, runs **Agent B** (viz suggestion) on demand to produce 5 distinct approaches with beginner/intermediate benefit lines
 4. Lets the user pick a suggestion (and optionally add custom notes)
-5. Spawns `fixed_main_v6.py` as a subprocess to actually generate the React+Vite+Tailwind viz
-6. Returns an embed manifest: `{section, embed_after_sentence, project_dir, screenshot}` per viz so a content creator can drop them into the script
+5. Spawns `fixed_main_v6.py` as a subprocess to generate the viz as a single self-contained `index.html` (plus a screenshot) — no build step
+6. Publishes each viz to a GitHub repo and returns an embed manifest: `{section, embed_after_sentence, embed_url, screenshot}` per viz so a content creator can drop them into the script
 
 ## Architecture
 
@@ -98,46 +98,21 @@ Open that URL in your browser.
                                User picks one + optionally types custom notes.
 
 4. BUILDING                    POST /jobs/{id}/topics/{tid}/build
-                               Orchestrator spawns fixed_main_v6.py as subprocess.
+                               Orchestrator spawns fixed_main_v6.py as subprocess,
+                               which emits a self-contained index.html + screenshot.
+                               Build phases: draft → validate → polish → publish → done.
                                Frontend polls /jobs/{id} every 2s and shows
                                progress phase + tail of stdout.
 
-5. AUTO LIVE PREVIEW           When the build succeeds, the orchestrator
-                               automatically runs:
-                                 npm install
-                                 npm audit fix --force
-                                 npm run dev -- --port <unique>
-                               on a unique port (5180-5230 by default).
-                               The UI shows a clickable "Open Live Preview ↗"
-                               button per viz so you don't have to cd + run
-                               npm commands yourself.
+5. PUBLISH                     On a successful build the orchestrator publishes the
+                               viz to a GitHub repo (served as a static site) and
+                               records the embed URL on the job.
 
 6. MANIFEST                    Once builds complete, user sees:
                                - screenshots
-                               - live preview URL per viz (one-click open)
-                               - Stop / Restart server buttons
+                               - the published embed URL per viz
                                - embed manifest JSON to download
 ```
-
-## Live preview controls
-
-The previous workflow was:
-```
-1. cd <viz-dir>
-2. npm install
-3. npm audit fix --force         (if vulnerabilities)
-4. npm run dev
-5. Open localhost in browser
-```
-
-That's automated end-to-end now. After each successful build:
-- The orchestrator runs all four npm steps in the background
-- Allocates a unique port (5180, 5181, 5182, …) so multiple vizes can run side by side
-- Shows an **Open Live Preview ↗** button in the UI that opens the viz in a new tab
-- Provides a **Stop** button to free the port and the node process when you're done
-- All running dev servers are killed automatically when you Ctrl-C the orchestrator
-
-If you'd rather do it manually, set `AUTO_START_DEV_SERVER=false` in `.env`. You can still trigger a manual start later via the **▶ Start dev server** button.
 
 ## Endpoints
 
@@ -150,11 +125,8 @@ If you'd rather do it manually, set `AUTO_START_DEV_SERVER=false` in `.env`. You
 | GET    | `/jobs/{job_id}`                                  | Full job state (poll for progress) |
 | GET    | `/jobs/{job_id}/topics`                           | Just the extracted topics |
 | POST   | `/jobs/{job_id}/topics/{topic_id}/suggestions`    | Run Agent B (cached after first call) |
-| POST   | `/jobs/{job_id}/topics/{topic_id}/build`          | Pick + queue viz build |
-| POST   | `/jobs/{job_id}/topics/{topic_id}/dev-server/start` | Manually (re)start the live preview for one viz |
-| POST   | `/jobs/{job_id}/topics/{topic_id}/dev-server/stop`  | Kill the live preview and free its port |
+| POST   | `/jobs/{job_id}/topics/{topic_id}/build`          | Pick + queue viz build (builds + publishes) |
 | GET    | `/jobs/{job_id}/manifest`                         | Final embed manifest |
-| GET    | `/dev-servers`                                    | List every dev server the orchestrator currently knows about |
 | GET    | `/preview?path=…`                                 | Serve a screenshot from VIZ_OUTPUT_DIR |
 
 ## Token monitoring
@@ -162,11 +134,11 @@ If you'd rather do it manually, set `AUTO_START_DEV_SERVER=false` in `.env`. You
 Every LLM call streams its cost to the terminal:
 
 ```
-[Tokens] agent_A_topic_extraction       [gpt-4o-mini] in=4823   out=2104  cost=$0.0020  job=6927/300000 (2%)
-[Tokens] agent_B_viz_suggest:topic_1    [gpt-4o-mini] in=1284   out=1102  cost=$0.0009  job=8029/300000 (3%)
+[Tokens] agent_A_topic_extraction       [gpt-4o-mini] in=4823   out=2104  cost=$0.0020  job=6927/500000 (1%)
+[Tokens] agent_B_viz_suggest:topic_1    [gpt-4o-mini] in=1284   out=1102  cost=$0.0009  job=8029/500000 (2%)
 ```
 
-Each job has a hard budget (`TOKEN_BUDGET_PER_JOB`, default 300K). If exceeded, the job aborts.
+Each job has a hard budget (`TOKEN_BUDGET_PER_JOB`, default 500K). If exceeded, the job aborts.
 
 The final manifest endpoint returns total tokens + USD cost for the whole job.
 

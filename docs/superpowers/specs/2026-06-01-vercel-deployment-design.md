@@ -19,13 +19,24 @@ a future option Vercel keeps open.
 
 ## Two independent deploy targets
 
-### 1. The tool → stays on Railway (unchanged)
+### 1. The tool → Render (Docker web service)
 
-No change. The backend needs Playwright/Chromium, multi-minute background jobs,
-subprocess spawning, and a writable `viz_outputs/` volume — none of which fit
-Vercel's serverless model. The existing `Dockerfile` and `railway.toml` already
-cover this. This decision is recorded here only so it is explicit; there is no
-implementation work for the tool's own hosting.
+The backend needs Playwright/Chromium, multi-minute background jobs, subprocess
+spawning, and a writable `viz_outputs/` working dir — none of which fit Vercel's
+serverless model. Render is a clean fit: it runs the existing `Dockerfile` as a
+long-lived Web Service, supports persistent disks, and runs Chromium fine.
+
+Implementation work:
+- Add a `render.yaml` (Render Blueprint) describing a Docker Web Service:
+  `dockerfilePath: Dockerfile`, health check `/healthz`, port from `$PORT`
+  (the Dockerfile already honors `${PORT:-8001}`).
+- Attach a persistent disk mounted at `/app/viz_outputs` (matches
+  `VIZ_OUTPUT_DIR`) so generated files survive restarts. Note: `viz_outputs`
+  is working/scratch storage — the source of truth is the per-program Git repo —
+  so an ephemeral disk also works if cost is a concern.
+- Set env vars on the service: `OPENAI_API_KEY`, `GITHUB_TOKEN`, `GITHUB_OWNER`,
+  and the program-repo config (below).
+- Remove the now-unused `railway.toml`.
 
 ### 2. The animations → per-program GitHub repo → Vercel
 
@@ -129,7 +140,6 @@ automation.
 - Vercel API automation for project creation (4 programs → do it by hand).
 - Custom domains (config keeps the door open; not built now).
 - Branch-per-module deployment.
-- Migrating the tool itself off Railway.
 
 ## Testing
 
