@@ -15,6 +15,7 @@ type Props = {
 export function Upload({ onJobReady, onError }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [track, setTrack] = useState('AIML');
+  const [module, setModule] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function submit() {
@@ -27,10 +28,15 @@ export function Upload({ onJobReady, onError }: Props) {
       onError('Only .md / .markdown files are accepted.');
       return;
     }
+    if (!module.trim()) {
+      onError('Enter a module name.');
+      return;
+    }
     setBusy(true);
     try {
       const fd = new FormData();
       fd.append('track', track);
+      fd.append('module', module.trim());
       fd.append('file', file);
       const res = await fetch('/upload', { method: 'POST', body: fd });
       if (!res.ok) throw new Error(await res.text());
@@ -66,6 +72,16 @@ export function Upload({ onJobReady, onError }: Props) {
             >
               {TRACKS.map((t) => <option key={t}>{t}</option>)}
             </select>
+          </div>
+          <div>
+            <label htmlFor="upload-module">Module</label>
+            <input
+              id="upload-module"
+              type="text"
+              placeholder="e.g. convolutional-neural-nets"
+              value={module}
+              onChange={(e) => setModule(e.target.value)}
+            />
           </div>
           <div>
             <label htmlFor="upload-file">HackMD file</label>

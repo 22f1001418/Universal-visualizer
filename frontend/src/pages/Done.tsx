@@ -95,7 +95,7 @@ export function Done({ jobId, onError, onRestart }: Props) {
         viz{data.manifest.length === 1 ? '' : 's'} pushed to GitHub.
       </h1>
       <p className="lead" style={{ marginTop: 8 }}>
-        All vizes live in a single monorepo as subdirectories — each served at its own GitHub Pages URL.
+        Each viz lives in its program's repo and is served on Vercel at its own URL.
       </p>
 
       <div style={{ marginTop: 36, display: 'flex', flexDirection: 'column', gap: 18 }}>
