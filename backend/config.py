@@ -8,10 +8,6 @@ Note on test-time mutation: pydantic-settings reads env at construction.
 The `settings` singleton at module scope is bound once. Tests that need
 to override should construct a fresh Settings() inside the test (after
 monkeypatching the env), not mutate `settings` directly.
-
-Note: LLM_PROVIDER and MODEL_NAME (used by backend/viz_generator/llm.py)
-remain on os.getenv. Migrating them requires deeper restructuring of the
-viz_generator package and is not part of Stage 3.
 """
 from __future__ import annotations
 
