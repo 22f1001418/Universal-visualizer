@@ -119,3 +119,54 @@ def test_skips_vercel_json_when_already_present(project_dir: Path):
 
     assert result.embed_url == "https://viz-aiml.vercel.app/conv-nets/kmeans/"
     assert result.file_count == 2
+
+
+def test_retries_on_stale_ref(project_dir: Path):
+    """A 422 on the ref PATCH (concurrent push) triggers a full retry:
+    blobs are re-created, a fresh parent SHA is fetched, and the second
+    attempt's commit SHA is returned."""
+    from backend.github_publisher import publish_viz
+
+    side_effects_get = [
+        _fake_response(200, {"type": "User", "login": "tester"}),   # owner lookup
+        _fake_response(200, {"name": "viz-aiml"}),                  # repo exists
+        _fake_response(200, {"name": "vercel.json"}),               # vercel.json present
+        _fake_response(404),                                        # path exists? (collision)
+        # attempt 1
+        _fake_response(200, {"object": {"sha": "parent"}}),         # ref
+        _fake_response(200, {"sha": "tree-base"}),                  # base tree
+        # attempt 2 (after 422 retry)
+        _fake_response(200, {"object": {"sha": "parent"}}),         # ref
+        _fake_response(200, {"sha": "tree-base"}),                  # base tree
+    ]
+    side_effects_post = [
+        # attempt 1
+        _fake_response(201, {"sha": "b1"}),       # blob index.html
+        _fake_response(201, {"sha": "b2"}),       # blob screenshot.png
+        _fake_response(201, {"sha": "t"}),        # new tree
+        _fake_response(201, {"sha": "commit-1"}), # commit
+        # attempt 2
+        _fake_response(201, {"sha": "b1"}),       # blob index.html
+        _fake_response(201, {"sha": "b2"}),       # blob screenshot.png
+        _fake_response(201, {"sha": "t"}),        # new tree
+        _fake_response(201, {"sha": "commit-2"}), # commit
+    ]
+    side_effects_patch = [
+        _fake_response(422, text="stale ref"),    # attempt 1: raced
+        _fake_response(200),                      # attempt 2: success
+    ]
+
+    with patch("backend.github_publisher.requests.get", side_effect=side_effects_get), \
+         patch("backend.github_publisher.requests.post", side_effect=side_effects_post), \
+         patch("backend.github_publisher.requests.patch", side_effect=side_effects_patch):
+        result = publish_viz(
+            project_dir=str(project_dir),
+            repo="viz-aiml",
+            vercel_base="https://viz-aiml.vercel.app",
+            module_slug="m",
+            viz_slug="v",
+            description="d",
+        )
+
+    assert result.commit_sha == "commit-2"  # second attempt's commit
+    assert result.file_count == 2
