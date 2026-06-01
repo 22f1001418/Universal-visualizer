@@ -207,6 +207,15 @@ def test_github_publish_called_on_success_when_enabled():
 
     mock_publish.assert_called_once()
 
+    # Verify the orchestrator routed to the correct program repo.
+    # _seed_job creates a JobState with module="" (the default), so
+    # `job.module or "module"` evaluates to the fallback "module".
+    kwargs = mock_publish.call_args.kwargs
+    assert kwargs["repo"] == "viz-acad"
+    assert kwargs["vercel_base"] == "https://viz-acad.vercel.app"
+    assert kwargs["module_slug"] == "module"   # fallback: job.module is ""
+    assert kwargs["viz_slug"] == "binary-search"
+
     job = job_store.get(job_id)
     assert job is not None
     task = job.builds[topic_id]

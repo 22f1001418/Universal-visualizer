@@ -83,7 +83,7 @@ def run_build_task(job_id: str, topic_id: str) -> None:
     task.error = result.error or ""
     task.phase = "done" if result.success else "failed"
 
-    # ── Publish the viz to the monorepo (one subdir per viz) ──
+    # ── Publish the viz to its program repo (<module>/<viz>/ path) ──
     if result.success and result.project_dir and settings.publish_to_github:
         prog = settings.program_repos.get(job.track)
         if not settings.github_token:

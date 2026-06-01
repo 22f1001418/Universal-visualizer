@@ -107,8 +107,8 @@ class BuildTask(BaseModel):
     error: str = ""
     token_usage: dict = Field(default_factory=dict)
 
-    # GitHub publish — each successful build is published to a subdirectory of
-    # the monorepo, served via GitHub Pages
+    # GitHub publish — each successful build is published to its program repo
+    # and served on Vercel
     github_status: str = "not_started"       # not_started | publishing | published | skipped | failed
     github_repo_url: str = ""                # https://github.com/<owner>/<repo>
     github_clone_url: str = ""               # https://github.com/<owner>/<repo>.git
@@ -121,7 +121,7 @@ class BuildTask(BaseModel):
     # repo_edit_url is the GitHub UI URL for the viz subdir.
     embed_url: str = ""
     repo_edit_url: str = ""
-    monorepo_name: str = ""
+    monorepo_name: str = ""  # holds per-program repo name; rename to repo_name deferred (out of scope)
 
 
 class BuildRequest(BaseModel):
