@@ -925,12 +925,13 @@ git commit -m "chore(deploy): add Render blueprint, remove Railway config"
 
 - [ ] **Step 1: Update `env.example` and `.env.example`**
 
-In **both** files, under the GitHub publish section (after `GITHUB_REPOS_PRIVATE`), add:
+In **both** files, set `GITHUB_OWNER=pulkit-scaler`, ensure `GITHUB_REPOS_PRIVATE=true`, and under the GitHub publish section (after `GITHUB_REPOS_PRIVATE`) add the real mapping. The 7 tracks fan into 4 repos; `vercel_base` values are filled in after each repo is imported into Vercel:
 
 ```bash
-# Per-program viz repos (JSON: track -> {repo, vercel_base}). One entry per
-# active program. Each repo is imported once into Vercel; pushes auto-deploy.
-PROGRAM_REPOS={"AIML": {"repo": "viz-aiml", "vercel_base": "https://viz-aiml.vercel.app"}}
+# Per-program viz repos (JSON: track -> {repo, vercel_base}). 7 tracks -> 4 repos.
+# Each repo is imported once into Vercel; pushes to main auto-deploy.
+# Replace the *.vercel.app values with each project's real production URL.
+PROGRAM_REPOS={"Academy DSA":{"repo":"Acad-Vizs","vercel_base":"https://acad-vizs.vercel.app"},"Academy Fullstack":{"repo":"Acad-Vizs","vercel_base":"https://acad-vizs.vercel.app"},"Academy Backend":{"repo":"Acad-Vizs","vercel_base":"https://acad-vizs.vercel.app"},"DSML DA":{"repo":"DSML-Vizs","vercel_base":"https://dsml-vizs.vercel.app"},"DSML DS":{"repo":"DSML-Vizs","vercel_base":"https://dsml-vizs.vercel.app"},"AIML":{"repo":"AIML-Vizs-new","vercel_base":"https://aiml-vizs-new.vercel.app"},"DevOps":{"repo":"DevOps-Vizs","vercel_base":"https://devops-vizs.vercel.app"}}
 ```
 
 Neither file currently has a `VIZ_MONOREPO_NAME` line, so there is nothing to remove — just add the block above to both.
