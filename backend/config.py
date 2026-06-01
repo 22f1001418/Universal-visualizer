@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
 from pydantic_settings.sources.providers.dotenv import DotEnvSettingsSource
@@ -50,6 +51,12 @@ class _CsvEnvSource(_CsvDecodeMixin, EnvSettingsSource):
 
 class _CsvDotEnvSource(_CsvDecodeMixin, DotEnvSettingsSource):
     pass
+
+
+class ProgramRepo(BaseModel):
+    """Where one program's vizzes are stored + served."""
+    repo: str          # GitHub repo name, e.g. "viz-aiml"
+    vercel_base: str   # Vercel production URL, e.g. "https://viz-aiml.vercel.app"
 
 
 class Settings(BaseSettings):
@@ -93,11 +100,13 @@ class Settings(BaseSettings):
     publish_to_github: bool = True
     github_repos_private: bool = False
 
-    # ── Vanilla viz monorepo (vanilla-viz-stage-1) ───────────
-    # Name of the GitHub repo that holds all published vanilla vizes as
-    # subdirectories. REQUIRED at publish time; empty default makes test
-    # construction work without env config.
-    viz_monorepo_name: str = ""
+    # ── Per-program viz repos (Vercel deploy) ────────────────
+    # Maps a program (= upload `track`) to the GitHub repo that stores its
+    # vizzes and the Vercel base URL that serves them. Populated from the
+    # PROGRAM_REPOS env var as a JSON object, e.g.:
+    #   PROGRAM_REPOS='{"AIML": {"repo": "viz-aiml", "vercel_base": "https://viz-aiml.vercel.app"}}'
+    # Empty default keeps test construction working without env config.
+    program_repos: dict[str, ProgramRepo] = {}
 
     # ── Build orchestration (Stage 3) ────────────────────────
     build_timeout_seconds: int = 1200
