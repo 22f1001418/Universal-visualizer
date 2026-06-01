@@ -1,10 +1,16 @@
-"""program_repos map: parsing from env JSON + resolution by track."""
+"""program_repos map: parsing from env JSON + resolution by track.
+
+Each test runs in a temp CWD (monkeypatch.chdir) so the repo's relative
+`.env` file isn't picked up — these assert behavior from OS env + defaults
+only, independent of whatever a developer has in their local `.env`.
+"""
 from __future__ import annotations
 
 import json
 
 
-def test_program_repos_parsed_from_env_json(monkeypatch):
+def test_program_repos_parsed_from_env_json(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     payload = {"AIML": {"repo": "viz-aiml", "vercel_base": "https://viz-aiml.vercel.app"}}
     monkeypatch.setenv("PROGRAM_REPOS", json.dumps(payload))
     from backend.config import Settings
@@ -16,7 +22,8 @@ def test_program_repos_parsed_from_env_json(monkeypatch):
     assert pr.vercel_base == "https://viz-aiml.vercel.app"
 
 
-def test_program_repos_missing_track_returns_none(monkeypatch):
+def test_program_repos_missing_track_returns_none(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PROGRAM_REPOS", "{}")
     from backend.config import Settings
 
@@ -24,7 +31,8 @@ def test_program_repos_missing_track_returns_none(monkeypatch):
     assert s.program_repos.get("Academy DSA") is None
 
 
-def test_program_repos_defaults_to_empty_when_unset(monkeypatch):
+def test_program_repos_defaults_to_empty_when_unset(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("PROGRAM_REPOS", raising=False)
     from backend.config import Settings
 

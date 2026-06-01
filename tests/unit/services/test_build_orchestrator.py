@@ -370,3 +370,29 @@ def test_progress_log_capped_at_300_lines():
     job = job_store.get(job_id)
     assert job is not None
     assert len(job.builds[topic_id].progress_log) <= 300
+
+
+def test_build_holds_lock_during_generation():
+    """The Chromium-heavy generation runs under _BUILD_LOCK so two concurrent
+    builds can't launch two browsers at once (OOM guard on small instances)."""
+    from backend.services import build_orchestrator as bo
+
+    job_id, topic_id = _seed_job()
+    observed = {}
+
+    def fake_run_viz_build(topic_brief, on_log=None, on_phase_change=None, extra_env=None):
+        observed["locked_during_generation"] = bo._BUILD_LOCK.locked()
+        return _make_success_result()
+
+    mock_settings = MagicMock()
+    mock_settings.publish_to_github = False
+
+    with (
+        patch(_PATCH_RUN_VIZ, side_effect=fake_run_viz_build),
+        patch(_PATCH_SETTINGS, mock_settings),
+    ):
+        run_build_task(job_id, topic_id)
+
+    assert observed.get("locked_during_generation") is True
+    # And the lock is released once the build returns.
+    assert bo._BUILD_LOCK.locked() is False
