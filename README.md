@@ -172,8 +172,9 @@ So you know how much of your output budget is going into hidden CoT vs visible a
       "why_visual_helps": "Beginners struggle to mentally simulate the kernel sweep…",
       "viz_title": "Matrix slide animation",
       "viz_brief": "Convolutional Layer Operation (Matrix slide animation) — Show a 5x5 input grid…",
-      "project_dir": "/Users/.../viz_outputs/convolutional-layer-operation-viz",
-      "screenshot_path": "/Users/.../viz_outputs/convolutional-layer-operation-viz/convolutional-layer-operation-viz_screenshot.png",
+      "embed_url": "https://viz-aiml.vercel.app/convolutional-neural-nets/convolutional-layer-operation/",
+      "repo_edit_url": "https://github.com/<owner>/viz-aiml/tree/main/convolutional-neural-nets/convolutional-layer-operation",
+      "screenshot_path": "/app/viz_outputs/convolutional-layer-operation-viz/screenshot.png",
       "status": "ok"
     }
   ],
@@ -184,6 +185,16 @@ So you know how much of your output budget is going into hidden CoT vs visible a
 The `embed_after_sentence` field is verbatim from the source script, so a
 later assembly step can simply do a string match + insertion to drop the
 viz reference into the right place.
+
+## Deployment
+
+- **Tool** → Render (Docker Web Service via `Dockerfile`, disk at `/app/viz_outputs`).
+  See `render.yaml`. Set `OPENAI_API_KEY`, `GITHUB_TOKEN`, `GITHUB_OWNER`,
+  `PROGRAM_REPOS` in the Render dashboard.
+- **Animations** → one GitHub repo per program (`PROGRAM_REPOS`), each imported
+  once into Vercel (framework "Other", no build command). On each successful
+  build the tool pushes `<module>/<viz>/{index.html,screenshot.png}` to `main`;
+  Vercel auto-deploys and serves `<vercel_base>/<module>/<viz>/`.
 
 ## Limitations
 
